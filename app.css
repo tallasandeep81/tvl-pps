@@ -360,10 +360,11 @@ table.list tbody tr:hover { background: var(--blue-pale); }
   font-size: 11px; color: var(--ink-2);
 }
 table.board.blank td.cell .line { min-height: 19px; }
+@media print { table.board.blank td.cell .line { min-height: 15px; } }
 table.board.blank .blankbox { display: block; height: 15px; }
 
 @media print {
-  @page { size: A4 landscape; margin: 10mm; }
+  @page { size: A4 landscape; margin: 7mm; }
 
   header.bar, .toolbar, .panels, #modal { display: none !important; }
   .print-head { display: flex; }
@@ -371,9 +372,16 @@ table.board.blank .blankbox { display: block; height: 15px; }
 
   /* keep only the period and the total on paper */
   .kpi:nth-child(n+3) { display: none; }
-  .kpis { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px; }
-  .kpi { box-shadow: none; padding: 8px 12px; }
-  .kpi .value { font-size: 18px; }
+  .kpis { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 6px; }
+  .kpi { box-shadow: none; padding: 5px 10px; border-radius: 4px; }
+  .kpi .label { font-size: 8px; }
+  .kpi .value { font-size: 14px; }
+  .kpi .note { font-size: 8px; }
+  .print-head { padding-bottom: 5px; margin-bottom: 7px; }
+  .print-head .ph-left img { height: 26px; }
+  .print-head .ph-mid b { font-size: 15px; }
+  .print-head .ph-right b { font-size: 12px; }
+  .print-head .ph-right span { font-size: 9px; }
 
   th.res .btn { display: none; }
 
@@ -386,13 +394,34 @@ table.board.blank .blankbox { display: block; height: 15px; }
   }
 
   .board-wrap { max-height: none; overflow: visible; border: none; box-shadow: none; }
+
+  /* spread across the full width of the sheet, no horizontal scroll stub */
+  table.board { width: 100%; table-layout: fixed; }
+  th.res { width: 74px; min-width: 0; max-width: none; padding: 3px 4px; font-size: 9px; }
+  th.res .type { font-size: 7px; }
+  th.shift { width: 26px; min-width: 0; font-size: 7px; letter-spacing: 0; padding: 0 1px; }
+  td.cell { min-width: 0; }
+  table.board thead th { padding: 3px 5px; font-size: 9px; }
+  table.board thead th small { font-size: 7px; }
+
+  /* tighter cells so more machines fit on a page instead of leaving it half empty */
+  td.cell .stack { gap: 0; padding: 2px 3px; break-inside: avoid; page-break-inside: avoid; }
   td.cell select, td.cell input {
     border: none !important; background: transparent !important;
-    -webkit-appearance: none; appearance: none; padding-left: 0;
+    -webkit-appearance: none; appearance: none;
+    padding: 0 2px; font-size: 9.5px; line-height: 1.25;
+    text-overflow: ellipsis;
   }
-  td.cell .members span { background: transparent; padding: 0 4px 0 0; }
+  td.cell .line { padding-top: 0; grid-template-columns: 32px 1fr; gap: 2px; }
+  td.cell .line b { font-size: 7px; letter-spacing: .02em; }
+  td.cell .qty, td.cell .actval { font-size: 9.5px; padding: 0 2px; }
+  td.cell .members { gap: 0 4px; padding: 0 3px 1px; }
+  td.cell .members span { background: transparent; padding: 0; font-size: 7.5px; }
+
   table.board thead { display: table-header-group; }
-  table.board tr { page-break-inside: avoid; }
+  table.board tbody tr, table.board td, table.board th {
+    page-break-inside: avoid; break-inside: avoid;
+  }
   table.board thead th, td.cell.idle, .kpi .value.amber, .print-head {
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
