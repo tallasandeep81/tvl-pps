@@ -8,7 +8,9 @@ const S = {
   days: CFG.DAYS || 6,
   cells: new Map(),                   // "date|shift|res" -> {product, operator, plan, actual, rej}
   dirty: new Set(),
-  demand: []
+  demand: [],
+  notes: '',
+  notesDirty: false
 };
 
 const ck = (date, shift, res) => [date, shift, res].join('|');
@@ -71,10 +73,17 @@ async function loadWeek() {
   S.cells.clear(); S.dirty.clear(); markDirty();
   $('#board').innerHTML = '<p class="loading">Loading plan…</p>';
   const days = workingDays(S.start, S.days);
-  const [plan, demand] = await Promise.all([
+  const [plan, demand, notes] = await Promise.all([
     api('getPlan', { dept: S.dept, from: days[0], to: days[days.length - 1] }),
-    api('getDemand', {})
+    api('getDemand', {}),
+    api('getNotes', { dept: S.dept, week: weekStart(days[0]) })
   ]);
+  S.notes = notes.notes || '';
+  S.notesDirty = false;
+  const ta = $('#notes');
+  ta.value = S.notes;
+  $('#notesMeta').textContent = notes.updatedBy
+    ? 'last edited by ' + notes.updatedBy + ' · ' + String(notes.updatedAt).slice(0, 16) : '';
   S.demand = demand.filter(d => d.dept === S.dept);
   plan.cells.forEach(c => {
     S.cells.set(ck(c.date, c.shift, c.res), {
@@ -252,9 +261,10 @@ function touch(td, day, shift, res) {
 }
 
 function markDirty() {
-  $('#saveBtn').disabled = S.dirty.size === 0;
-  $('#toolbar').classList.toggle('dirty', S.dirty.size > 0);
-  $('#dirtyCount').textContent = S.dirty.size ? S.dirty.size + ' unsaved' : 'All saved';
+  const n = S.dirty.size + (S.notesDirty ? 1 : 0);
+  $('#saveBtn').disabled = n === 0;
+  $('#toolbar').classList.toggle('dirty', n > 0);
+  $('#dirtyCount').textContent = n ? n + ' unsaved' : 'All saved';
 }
 
 /* ------------------------------------------------------------ row tools */
@@ -399,9 +409,10 @@ function coverage() {
 /* ------------------------------------------------------------------ save */
 
 async function save() {
-  if (!S.dirty.size) return;
+  if (!S.dirty.size && !S.notesDirty) return;
   const btn = $('#saveBtn');
   btn.disabled = true; btn.textContent = 'Saving…';
+  const days = workingDays(S.start, S.days);
   const cells = Array.from(S.dirty).map(k => {
     const [date, shift, res] = k.split('|');
     const c = S.cells.get(k);
@@ -411,9 +422,18 @@ async function save() {
     };
   });
   try {
-    const out = await api('savePlan', { cells, mode: 'plan' });
+    let saved = 0;
+    if (cells.length) {
+      const out = await api('savePlan', { cells, mode: 'plan' });
+      saved = out.saved;
+    }
+    if (S.notesDirty) {
+      await api('saveNotes', { dept: S.dept, week: weekStart(days[0]), notes: S.notes });
+      S.notesDirty = false;
+      $('#notesMeta').textContent = 'last edited by ' + Auth.user + ' · just now';
+    }
     S.dirty.clear();
-    toast('Plan saved — ' + out.saved + ' slots', 'ok');
+    toast(saved ? 'Saved — ' + saved + ' slots' : 'Notes saved', 'ok');
     render();
   } catch (e) {
     toast(e.message, 'err');
@@ -592,6 +612,11 @@ function printBlank() {
   table.appendChild(tb);
   wrap.appendChild(table);
 
+  const nbox = el('div', { class: 'blank-notes' });
+  nbox.appendChild(el('b', { text: 'Notes and instructions' }));
+  nbox.appendChild(el('div', { class: 'blanklines' }));
+  wrap.appendChild(nbox);
+
   const foot = el('div', { class: 'blank-foot' });
   foot.appendChild(el('span', { text: 'Planned by ______________________' }));
   foot.appendChild(el('span', { text: 'Checked by ______________________' }));
@@ -624,9 +649,15 @@ window.addEventListener('DOMContentLoaded', () => {
   $('#saveBtn').onclick = () => save();
   $('#printBtn').onclick = () => window.print();
   $('#blankBtn').onclick = () => printBlank();
+  window.addEventListener('beforeprint', () => {
+    const ta = $('#notes');
+    if (ta) { ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 6) + 'px'; }
+  });
+  window.addEventListener('afterprint', () => { const ta = $('#notes'); if (ta) ta.style.height = ''; });
+  $('#notes').addEventListener('input', e => { S.notes = e.target.value; S.notesDirty = true; markDirty(); });
   $('#mgProducts').onclick = () => openManager('product');
   $('#mgOperators').onclick = () => openManager('operator');
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
-  window.addEventListener('beforeunload', e => { if (S.dirty.size) { e.preventDefault(); e.returnValue = ''; } });
+  window.addEventListener('beforeunload', e => { if (S.dirty.size || S.notesDirty) { e.preventDefault(); e.returnValue = ''; } });
   start().catch(e => toast(e.message, 'err'));
 });
