@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan vs actual — TVL Production Planning</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="bar">
+  <h1>Trans Valves <span>Plan vs actual</span></h1>
+  <nav>
+    <a href="index.html">Planning board</a>
+    <a href="actual.html">Shift entry</a>
+    <a href="dashboard.html" aria-current="page">Plan vs actual</a>
+  </nav>
+  <span class="who" id="who"></span>
+</header>
+
+<div class="toolbar">
+  <div class="row">
+    <div class="field"><label for="from">From</label><input type="date" id="from"></div>
+    <div class="field"><label for="to">To</label><input type="date" id="to"></div>
+    <button class="btn" id="go">Show</button>
+    <button class="btn" id="printBtn">Print</button>
+  </div>
+</div>
+
+<main>
+  <div class="panels">
+    <section class="panel">
+      <h2>By department</h2>
+      <div class="body" id="depts"><p class="loading">Loading…</p></div>
+    </section>
+    <section class="panel">
+      <h2>By product</h2>
+      <div class="body" id="products"></div>
+    </section>
+    <section class="panel">
+      <h2>Idle capacity</h2>
+      <div class="body" id="idle"></div>
+    </section>
+  </div>
+</main>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="dashboard.js"></script>
+</body>
+</html>

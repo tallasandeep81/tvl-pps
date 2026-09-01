@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shift entry — TVL Production Planning</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="bar">
+  <h1>Trans Valves <span>Shift entry</span></h1>
+  <nav>
+    <a href="index.html">Planning board</a>
+    <a href="actual.html" aria-current="page">Shift entry</a>
+    <a href="dashboard.html">Plan vs actual</a>
+  </nav>
+  <span class="who">Reported by: <b id="who">—</b></span>
+</header>
+
+<div class="toolbar" id="toolbar">
+  <div class="row">
+    <div class="field"><label for="dept">Department</label><select id="dept"></select></div>
+    <div class="field"><label for="date">Date</label><input type="date" id="date"></div>
+    <div class="field"><label for="shift">Shift</label>
+      <select id="shift"><option value="DAY">Day</option><option value="NIGHT">Night</option></select>
+    </div>
+    <button class="btn" id="loadBtn">Load shift</button>
+  </div>
+  <span class="spacer"></span>
+  <span class="mono" id="dirtyCount" style="font-size:13px;color:#47535e"><span class="dirty-dot"></span>All saved</span>
+  <button class="btn btn--primary" id="saveBtn" disabled>Save actuals</button>
+</div>
+
+<main>
+  <section class="panel">
+    <h2>Produced this shift <span class="mono" id="summary" style="font-weight:400;color:#7b8792;font-size:13px"></span></h2>
+    <div class="entry-list" id="list"><p class="loading">Pick a date and shift, then load.</p></div>
+  </section>
+</main>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="actual.js"></script>
+</body>
+</html>
