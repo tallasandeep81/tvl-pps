@@ -171,12 +171,22 @@ td.cell select:hover, td.cell input:hover { border-color: var(--rule-strong); ba
 td.cell select:focus, td.cell input:focus { border-color: var(--blue); background: #fff; }
 td.cell .prod { font-weight: 600; color: var(--navy); }
 td.cell .op { color: var(--ink-2); font-size: 12px; }
-td.cell .qtyrow { display: flex; align-items: center; gap: 8px; }
-td.cell .qty {
-  text-align: right; font-weight: 600;
-  border-bottom: 1px solid var(--rule) !important; border-radius: 0;
+td.cell .line {
+  display: grid; grid-template-columns: 46px 1fr; align-items: center; gap: 4px;
+  border-top: 1px solid var(--rule); padding-top: 2px;
 }
-td.cell .actual { font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+td.cell .line b {
+  font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+td.cell .qty {
+  text-align: right; font-weight: 700; font-size: 14px; color: var(--navy);
+}
+td.cell .actval {
+  text-align: right; font-size: 14px; font-weight: 700; padding: 3px 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+td.cell .actval--none { color: var(--ink-3); font-weight: 400; }
 td.cell.idle { background: #f7f9fc; }
 td.cell.idle .prod { color: var(--ink-3); font-weight: 400; }
 tr.night td.cell.idle { background: #f2f6fb; }
