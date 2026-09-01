@@ -190,24 +190,35 @@ function renderCell(dept, res, day, shift) {
     stack.appendChild(op);
   }
 
-  /* quantity */
-  const qtyRow = el('div', { class: 'qtyrow' });
+  /* quantity — plan row and actual row, like the Excel sheet */
+  const planRow = el('div', { class: 'line' });
+  planRow.appendChild(el('b', { text: 'Plan' }));
   const qty = el('input', { class: 'qty', type: 'number', min: '0', step: '10', value: c.plan === '' ? '' : c.plan });
   qty.addEventListener('input', () => {
     c.plan = qty.value === '' ? '' : Number(qty.value);
-    touch(td, day, shift, res.id); coverage(); validate();
+    touch(td, day, shift, res.id); coverage(); validate(); paintActual();
   });
-  qtyRow.appendChild(qty);
+  planRow.appendChild(qty);
+  stack.appendChild(planRow);
 
-  if (c.actual !== '' && c.actual !== null && c.actual !== undefined) {
+  const actRow = el('div', { class: 'line' });
+  actRow.appendChild(el('b', { text: 'Actual' }));
+  const actVal = el('span', { class: 'actval', title: 'Reported from Shift entry' });
+  actRow.appendChild(actVal);
+  stack.appendChild(actRow);
+
+  function paintActual() {
+    const has = c.actual !== '' && c.actual !== null && c.actual !== undefined;
+    if (!has) {
+      actVal.textContent = '—';
+      actVal.className = 'actval actval--none';
+      return;
+    }
     const v = Number(c.actual) - Number(c.plan || 0);
-    qtyRow.appendChild(el('span', {
-      class: 'actual ' + (v < 0 ? 'var-behind' : 'var-ahead'),
-      title: 'Actual reported',
-      text: 'act ' + fmt(c.actual) + (v ? ' (' + (v > 0 ? '+' : '') + fmt(v) + ')' : '')
-    }));
+    actVal.textContent = fmt(c.actual) + (v ? '  ' + (v > 0 ? '+' : '') + fmt(v) : '');
+    actVal.className = 'actval ' + (v < 0 ? 'var-behind' : 'var-ahead');
   }
-  stack.appendChild(qtyRow);
+  paintActual();
 
   td.appendChild(stack);
   if (!c.product) td.classList.add('idle');
