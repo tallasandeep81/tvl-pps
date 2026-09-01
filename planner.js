@@ -1,10 +1,12 @@
-/* TVL PPS — weekly planning board */
+/* TVL PPS — planning board */
+
+const ADD_NEW = '__ADD_NEW__';
 
 const S = {
   dept: null,
-  start: weekStart(todayISO()),
-  days: CFG.DAYS,
-  cells: new Map(),      // "date|shift|res" -> {product, operator, plan, actual, rej}
+  start: nextWorkingDay(todayISO()),   // today onwards, Sundays skipped
+  days: CFG.DAYS || 6,
+  cells: new Map(),                   // "date|shift|res" -> {product, operator, plan, actual, rej}
   dirty: new Set(),
   demand: []
 };
@@ -31,6 +33,7 @@ async function start() {
   S.dept = Store.boot.depts[0].code;
   buildTabs();
   $('#weekDate').value = S.start;
+  $('#dayCount').value = String(S.days);
   await loadWeek();
 }
 
@@ -56,7 +59,7 @@ async function switchDept(code) {
 async function loadWeek() {
   S.cells.clear(); S.dirty.clear(); markDirty();
   $('#board').innerHTML = '<p class="loading">Loading plan…</p>';
-  const days = weekDays(S.start, S.days);
+  const days = workingDays(S.start, S.days);
   const [plan, demand] = await Promise.all([
     api('getPlan', { dept: S.dept, from: days[0], to: days[days.length - 1] }),
     api('getDemand', {})
@@ -76,9 +79,10 @@ async function loadWeek() {
 
 function render() {
   const d = Store.dept(S.dept);
-  const days = weekDays(S.start, S.days);
+  const days = workingDays(S.start, S.days);
   const resources = Store.resources(S.dept);
   const shifts = d.hasShift ? ['DAY', 'NIGHT'] : ['DAY'];
+  const today = todayISO();
 
   const table = el('table', { class: 'board' });
   const thead = el('thead');
@@ -86,8 +90,8 @@ function render() {
   hr.appendChild(el('th', { class: 'res', text: d.resourceLabel }));
   if (d.hasShift) hr.appendChild(el('th', { class: 'shift', text: 'Shift' }));
   days.forEach(day => {
-    const th = el('th', { text: shortDate(day) });
-    th.appendChild(el('small', { text: day.split('-').reverse().join('.') }));
+    const th = el('th', { class: day === today ? 'today' : '', text: shortDate(day) });
+    th.appendChild(el('small', { text: day === today ? 'Today' : day.split('-').reverse().join('.') }));
     hr.appendChild(th);
   });
   thead.appendChild(hr);
@@ -102,7 +106,7 @@ function render() {
         th.appendChild(el('div', { text: r.name }));
         th.appendChild(el('span', { class: 'type', text: r.type }));
         th.appendChild(el('button', {
-          class: 'btn', style: 'margin-top:4px;padding:1px 6px;font-size:12px',
+          class: 'btn', style: 'margin-top:5px;padding:2px 8px;font-size:11px',
           text: 'Fill week', title: 'Copy the first day across this row',
           onclick: () => fillRow(r.id)
         }));
@@ -130,6 +134,7 @@ function renderCell(dept, res, day, shift) {
   td.dataset.key = ck(day, shift, res.id);
   const stack = el('div', { class: 'stack' });
 
+  /* product */
   const prod = el('select', { class: 'prod' });
   prod.appendChild(el('option', { value: '', text: '— idle —' }));
   Store.products(S.dept).forEach(p => {
@@ -137,7 +142,17 @@ function renderCell(dept, res, day, shift) {
     if (p.code === c.product) o.selected = true;
     prod.appendChild(o);
   });
-  prod.addEventListener('change', () => {
+  prod.appendChild(el('option', { value: ADD_NEW, text: '+ Add new product…' }));
+  prod.addEventListener('change', async () => {
+    if (prod.value === ADD_NEW) {
+      prod.value = c.product;
+      try {
+        const code = await Store.addProduct(S.dept, res.id);
+        if (code) { c.product = code; c.plan = Store.stdQty(res.id, code) || ''; touch(td, day, shift, res.id); }
+      } catch (e) { toast(e.message, 'err'); }
+      render();
+      return;
+    }
     const prev = c.product;
     c.product = prod.value;
     const prevStd = Store.stdQty(res.id, prev);
@@ -148,18 +163,34 @@ function renderCell(dept, res, day, shift) {
   });
   stack.appendChild(prod);
 
+  /* operator */
   if (dept.hasOperator) {
     const op = el('select', { class: 'op' });
-    op.appendChild(el('option', { value: '', text: '— ' + dept.operatorLabel.toLowerCase() + ' not assigned —' }));
+    op.appendChild(el('option', { value: '', text: '— not assigned —' }));
     Store.operators(S.dept).forEach(o => {
       const opt = el('option', { value: o.name, text: o.name });
       if (o.name === c.operator) opt.selected = true;
       op.appendChild(opt);
     });
-    op.addEventListener('change', () => { c.operator = op.value; touch(td, day, shift, res.id); validate(); });
+    op.appendChild(el('option', { value: ADD_NEW, text: '+ Add new ' + dept.operatorLabel.toLowerCase() + '…' }));
+    op.addEventListener('change', async () => {
+      if (op.value === ADD_NEW) {
+        op.value = c.operator;
+        try {
+          const name = await Store.addOperator(S.dept, shift);
+          if (name) { c.operator = name; touch(td, day, shift, res.id); }
+        } catch (e) { toast(e.message, 'err'); }
+        render();
+        return;
+      }
+      c.operator = op.value;
+      touch(td, day, shift, res.id);
+      validate();
+    });
     stack.appendChild(op);
   }
 
+  /* quantity */
   const qtyRow = el('div', { class: 'qtyrow' });
   const qty = el('input', { class: 'qty', type: 'number', min: '0', step: '10', value: c.plan === '' ? '' : c.plan });
   qty.addEventListener('input', () => {
@@ -199,7 +230,7 @@ function markDirty() {
 /* ------------------------------------------------------------ row tools */
 
 function fillRow(resId) {
-  const days = weekDays(S.start, S.days);
+  const days = workingDays(S.start, S.days);
   const shifts = Store.dept(S.dept).hasShift ? ['DAY', 'NIGHT'] : ['DAY'];
   shifts.forEach(sh => {
     const src = cell(days[0], sh, resId);
@@ -214,22 +245,21 @@ function fillRow(resId) {
 }
 
 async function copyLastWeek() {
-  if (!confirm('Copy last week\'s plan onto this week? Existing entries for this week will be overwritten.')) return;
-  const prev = addDays(S.start, -7);
-  const days = S.days;
+  if (!confirm('Copy the previous ' + S.days + ' working days onto this view? Existing entries will be overwritten.')) return;
+  const prev = shiftWorkingDays(S.start, -S.days);
   await api('copyRange', {
     dept: S.dept,
-    fromStart: prev, fromEnd: addDays(prev, days - 1),
+    fromStart: prev, fromEnd: workingDays(prev, S.days)[S.days - 1],
     toStart: S.start
   });
-  toast('Last week copied across', 'ok');
+  toast('Previous period copied across', 'ok');
   await loadWeek();
 }
 
 /* ------------------------------------------------------------ validation */
 
 function validate() {
-  const days = weekDays(S.start, S.days);
+  const days = workingDays(S.start, S.days);
   const dept = Store.dept(S.dept);
   const shifts = dept.hasShift ? ['DAY', 'NIGHT'] : ['DAY'];
   const issues = [];
@@ -275,22 +305,25 @@ function validate() {
     issues.slice(0, 40).forEach(i => box.appendChild(el('div', { class: 'issue ' + (i.kind === 'warn' ? 'warn' : ''), text: i.text })));
     if (issues.length > 40) box.appendChild(el('p', { class: 'empty', text: (issues.length - 40) + ' more' }));
   }
-  $('#issueCount').textContent = issues.length ? issues.length : '';
+  const cnt = $('#issueCount');
+  cnt.textContent = issues.length ? issues.length : 'clear';
+  cnt.className = 'pill' + (issues.length ? '' : ' pill--ok');
 }
 
 /* -------------------------------------------------------------- coverage */
 
 function coverage() {
-  const days = weekDays(S.start, S.days);
+  const days = workingDays(S.start, S.days);
   const shifts = Store.dept(S.dept).hasShift ? ['DAY', 'NIGHT'] : ['DAY'];
   const totals = new Map();
-  let slots = 0, loaded = 0;
+  let slots = 0, loaded = 0, planTotal = 0;
 
   days.forEach(day => shifts.forEach(sh => Store.resources(S.dept).forEach(r => {
     const c = cell(day, sh, r.id);
     slots++;
     if (!c.product) return;
     loaded++;
+    planTotal += Number(c.plan) || 0;
     totals.set(c.product, (totals.get(c.product) || 0) + (Number(c.plan) || 0));
   })));
 
@@ -303,7 +336,7 @@ function coverage() {
 
   const t = el('table', { class: 'list' });
   t.appendChild(el('thead', {}, el('tr', {}, [
-    el('th', { text: 'Product' }), el('th', { class: 'n', text: 'Week plan' }),
+    el('th', { text: 'Product' }), el('th', { class: 'n', text: 'Period plan' }),
     el('th', { class: 'n', text: 'Open demand' }), el('th', { text: 'Cover' })
   ])));
   const tb = el('tbody');
@@ -322,8 +355,12 @@ function coverage() {
   $('#coverage').innerHTML = '';
   $('#coverage').appendChild(t);
 
-  $('#load').textContent = loaded + ' of ' + slots + ' shift slots loaded (' +
-    Math.round(loaded / (slots || 1) * 100) + '%)';
+  const pct = Math.round(loaded / (slots || 1) * 100);
+  $('#kpiPlan').textContent = fmt(planTotal);
+  $('#kpiSlots').textContent = loaded + ' / ' + slots;
+  $('#kpiLoad').textContent = pct + '%';
+  $('#kpiIdle').textContent = (slots - loaded);
+  $('#kpiRange').textContent = shortDate(days[0]) + ' – ' + shortDate(days[days.length - 1]);
 }
 
 /* ------------------------------------------------------------------ save */
@@ -355,9 +392,10 @@ async function save() {
 /* ------------------------------------------------------------------ wire */
 
 window.addEventListener('DOMContentLoaded', () => {
-  $('#prevWeek').onclick = () => { S.start = addDays(S.start, -7); $('#weekDate').value = S.start; loadWeek(); };
-  $('#nextWeek').onclick = () => { S.start = addDays(S.start, 7); $('#weekDate').value = S.start; loadWeek(); };
-  $('#weekDate').onchange = e => { S.start = weekStart(e.target.value); e.target.value = S.start; loadWeek(); };
+  $('#prevWeek').onclick = () => { S.start = shiftWorkingDays(S.start, -S.days); $('#weekDate').value = S.start; loadWeek(); };
+  $('#nextWeek').onclick = () => { S.start = shiftWorkingDays(S.start, S.days); $('#weekDate').value = S.start; loadWeek(); };
+  $('#todayBtn').onclick = () => { S.start = nextWorkingDay(todayISO()); $('#weekDate').value = S.start; loadWeek(); };
+  $('#weekDate').onchange = e => { S.start = nextWorkingDay(e.target.value); e.target.value = S.start; loadWeek(); };
   $('#dayCount').onchange = e => { S.days = Number(e.target.value); loadWeek(); };
   $('#copyBtn').onclick = () => copyLastWeek().catch(e => toast(e.message, 'err'));
   $('#saveBtn').onclick = () => save();
