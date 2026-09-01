@@ -27,7 +27,7 @@ function opMembers(name) {
 
 function cell(date, shift, res) {
   const k = ck(date, shift, res);
-  if (!S.cells.has(k)) S.cells.set(k, { product: '', operator: '', plan: '', actual: '', rej: '' });
+  if (!S.cells.has(k)) S.cells.set(k, { product: '', operator: '', plan: '', actual: '', rej: '', remarks: '' });
   return S.cells.get(k);
 }
 
@@ -89,7 +89,7 @@ async function loadWeek() {
     S.cells.set(ck(c.date, c.shift, c.res), {
       product: c.product, operator: c.operator,
       plan: c.plan === '' ? '' : c.plan,
-      actual: c.actual, rej: c.rej
+      actual: c.actual, rej: c.rej, remarks: c.remarks || ''
     });
   });
   render();
@@ -247,6 +247,10 @@ function renderCell(dept, res, day, shift) {
     actVal.className = 'actval ' + (v < 0 ? 'var-behind' : 'var-ahead');
   }
   paintActual();
+
+  if (c.remarks) {
+    stack.appendChild(el('div', { class: 'reason-note', title: c.remarks, text: c.remarks }));
+  }
 
   td.appendChild(stack);
   if (!c.product) td.classList.add('idle');
