@@ -4,55 +4,70 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Planning board — TVL Production Planning</title>
+<link rel="icon" href="logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
 
 <header class="bar">
-  <h1>Trans Valves <span>Production Planning</span></h1>
+  <img src="logo.png" alt="TVL" class="logo">
+  <div class="brand">
+    <b>Trans Valves India Private Limited</b>
+    <span>When Safety Matters</span>
+  </div>
+  <h1>Production <span>Planning</span></h1>
   <nav>
     <a href="index.html" aria-current="page">Planning board</a>
     <a href="actual.html">Shift entry</a>
     <a href="dashboard.html">Plan vs actual</a>
   </nav>
-  <span class="who">Planner: <b id="who">—</b></span>
+  <span class="who">Planner<br><b id="who">—</b></span>
 </header>
 
 <div class="toolbar" id="toolbar">
   <div class="tabs" id="tabs" role="tablist"></div>
 
   <div class="weeknav">
-    <button class="btn" id="prevWeek" title="Previous week">‹</button>
-    <input type="date" id="weekDate" aria-label="Week starting">
-    <button class="btn" id="nextWeek" title="Next week">›</button>
-    <select id="dayCount" aria-label="Days shown">
+    <button class="btn" id="prevWeek" title="Previous period">‹</button>
+    <input type="date" id="weekDate" aria-label="Starting from">
+    <button class="btn" id="nextWeek" title="Next period">›</button>
+    <button class="btn" id="todayBtn">Today</button>
+    <select id="dayCount" aria-label="Working days shown">
       <option value="5">5 days</option>
       <option value="6">6 days</option>
-      <option value="7">7 days</option>
+      <option value="12">12 days</option>
     </select>
   </div>
 
-  <button class="btn" id="copyBtn">Copy last week</button>
+  <button class="btn" id="copyBtn">Copy last period</button>
   <button class="btn" id="printBtn">Print</button>
 
   <span class="spacer"></span>
-  <span class="mono" id="dirtyCount" style="font-size:13px;color:#47535e"><span class="dirty-dot"></span>All saved</span>
+  <span class="mono" id="dirtyCount" style="font-size:12px;color:#4a5a70"><span class="dirty-dot"></span>All saved</span>
   <button class="btn btn--primary" id="saveBtn" disabled>Save plan</button>
 </div>
 
 <main>
+  <div class="kpis">
+    <div class="kpi"><div class="label">Period</div><div class="value blue" id="kpiRange" style="font-size:18px">—</div><div class="note">Sundays excluded</div></div>
+    <div class="kpi"><div class="label">Total planned</div><div class="value" id="kpiPlan">0</div><div class="note">pieces across the period</div></div>
+    <div class="kpi"><div class="label">Slots loaded</div><div class="value" id="kpiSlots">0 / 0</div><div class="note">machine shifts with a product</div></div>
+    <div class="kpi"><div class="label">Capacity used</div><div class="value amber" id="kpiLoad">0%</div><div class="note">of available shifts</div></div>
+    <div class="kpi"><div class="label">Idle shifts</div><div class="value" id="kpiIdle">0</div><div class="note">nothing planned</div></div>
+  </div>
+
   <div id="board"><p class="loading">Loading…</p></div>
 
   <div class="panels">
     <section class="panel">
-      <h2>Load and coverage <span class="mono" id="load" style="font-weight:400;color:#7b8792;font-size:13px"></span></h2>
+      <h2>Load and coverage</h2>
       <div class="body" id="coverage"></div>
     </section>
     <section class="panel">
-      <h2>Things to fix <span class="mono" id="issueCount" style="color:#a32218"></span></h2>
+      <h2>Things to fix <span class="pill" id="issueCount"></span></h2>
       <div class="body issues" id="issues"></div>
     </section>
   </div>
