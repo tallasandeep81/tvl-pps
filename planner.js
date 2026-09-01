@@ -13,6 +13,16 @@ const S = {
 
 const ck = (date, shift, res) => [date, shift, res].join('|');
 
+/* "TEAM A - NARENDRA/RAJU/GOVIND/AMAN" -> label "TEAM A", members listed below it */
+function opLabel(name) {
+  const i = String(name || '').indexOf(' - ');
+  return i > 0 ? name.slice(0, i) : name;
+}
+function opMembers(name) {
+  const i = String(name || '').indexOf(' - ');
+  return i > 0 ? name.slice(i + 3).split(/[\/,]/).map(x => x.trim()).filter(Boolean) : [];
+}
+
 function cell(date, shift, res) {
   const k = ck(date, shift, res);
   if (!S.cells.has(k)) S.cells.set(k, { product: '', operator: '', plan: '', actual: '', rej: '' });
@@ -169,10 +179,11 @@ function renderCell(dept, res, day, shift) {
     const op = el('select', { class: 'op' });
     op.appendChild(el('option', { value: '', text: '— not assigned —' }));
     Store.operators(S.dept).forEach(o => {
-      const opt = el('option', { value: o.name, text: o.name });
+      const opt = el('option', { value: o.name, text: opLabel(o.name), title: o.name });
       if (o.name === c.operator) opt.selected = true;
       op.appendChild(opt);
     });
+    op.title = c.operator || '';
     op.appendChild(el('option', { value: ADD_NEW, text: '+ Add new ' + dept.operatorLabel.toLowerCase() + '…' }));
     op.addEventListener('change', async () => {
       if (op.value === ADD_NEW) {
@@ -186,9 +197,16 @@ function renderCell(dept, res, day, shift) {
       }
       c.operator = op.value;
       touch(td, day, shift, res.id);
-      validate();
+      render();
     });
     stack.appendChild(op);
+
+    const members = opMembers(c.operator);
+    if (members.length) {
+      const box = el('div', { class: 'members' });
+      members.forEach(m => box.appendChild(el('span', { text: m })));
+      stack.appendChild(box);
+    }
   }
 
   /* quantity — plan row and actual row, like the Excel sheet */
