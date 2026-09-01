@@ -4,21 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shift entry — TVL Production Planning</title>
+<link rel="icon" href="logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
 
 <header class="bar">
-  <h1>Trans Valves <span>Shift entry</span></h1>
+  <img src="logo.png" alt="TVL" class="logo">
+  <div class="brand">
+    <b>Trans Valves India Private Limited</b>
+    <span>When Safety Matters</span>
+  </div>
+  <h1>Shift <span>Entry</span></h1>
   <nav>
     <a href="index.html">Planning board</a>
     <a href="actual.html" aria-current="page">Shift entry</a>
     <a href="dashboard.html">Plan vs actual</a>
   </nav>
-  <span class="who">Reported by: <b id="who">—</b></span>
+  <span class="who">Reported by<br><b id="who">—</b></span>
 </header>
 
 <div class="toolbar" id="toolbar">
@@ -31,13 +37,13 @@
     <button class="btn" id="loadBtn">Load shift</button>
   </div>
   <span class="spacer"></span>
-  <span class="mono" id="dirtyCount" style="font-size:13px;color:#47535e"><span class="dirty-dot"></span>All saved</span>
+  <span class="mono" id="dirtyCount" style="font-size:12px;color:#4a5a70"><span class="dirty-dot"></span>All saved</span>
   <button class="btn btn--primary" id="saveBtn" disabled>Save actuals</button>
 </div>
 
 <main>
   <section class="panel">
-    <h2>Produced this shift <span class="mono" id="summary" style="font-weight:400;color:#7b8792;font-size:13px"></span></h2>
+    <h2>Produced this shift <span class="mono" id="summary" style="font-weight:400;color:#8494a8;font-size:12px"></span></h2>
     <div class="entry-list" id="list"><p class="loading">Pick a date and shift, then load.</p></div>
   </section>
 </main>
