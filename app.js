@@ -9,6 +9,8 @@ const Auth = {
   set pin(v) { sessionStorage.setItem('pps_pin', v); },
   get user() { return localStorage.getItem('pps_user') || ''; },
   set user(v) { localStorage.setItem('pps_user', v); },
+  get adminPin() { return sessionStorage.getItem('pps_admin') || ''; },
+  set adminPin(v) { sessionStorage.setItem('pps_admin', v); },
 
   async gate() {
     if (this.pin && this.user) return true;
@@ -21,7 +23,16 @@ const Auth = {
     return true;
   },
 
-  clear() { sessionStorage.removeItem('pps_pin'); }
+  needAdmin() {
+    if (this.adminPin) return this.adminPin;
+    const p = prompt('Admin PIN (needed to add products or operators)');
+    if (!p) return '';
+    this.adminPin = p.trim();
+    return this.adminPin;
+  },
+
+  clear() { sessionStorage.removeItem('pps_pin'); },
+  clearAdmin() { sessionStorage.removeItem('pps_admin'); }
 };
 
 /* ----------------------------------------------------------------- api */
@@ -39,7 +50,8 @@ async function api(action, payload = {}) {
   try { out = JSON.parse(text); }
   catch (e) { throw new Error('Server did not return JSON. Check the /exec URL and that access is set to Anyone.'); }
   if (!out.ok) {
-    if (/PIN/i.test(out.error)) Auth.clear();
+    if (/^Wrong PIN/i.test(out.error)) Auth.clear();
+    if (/admin PIN/i.test(out.error)) Auth.clearAdmin();
     throw new Error(out.error);
   }
   return out.data;
@@ -55,16 +67,39 @@ function iso(d) {
 }
 function parseISO(s) { return new Date(s + 'T00:00:00'); }
 function addDays(s, n) { const d = parseISO(s); d.setDate(d.getDate() + n); return iso(d); }
+function isSunday(s) { return parseISO(s).getDay() === 0; }
+
+/** Next working day on or after the given date (Sunday is a holiday). */
+function nextWorkingDay(s) { return isSunday(s) ? addDays(s, 1) : s; }
+
+/** n working days starting at startISO, Sundays skipped. */
+function workingDays(startISO, n) {
+  const out = [];
+  let d = nextWorkingDay(startISO);
+  while (out.length < n) {
+    out.push(d);
+    d = nextWorkingDay(addDays(d, 1));
+  }
+  return out;
+}
+
+/** Move forward or back by n working days. */
+function shiftWorkingDays(startISO, n) {
+  let d = startISO, step = n > 0 ? 1 : -1;
+  for (let i = 0; i < Math.abs(n); i++) {
+    do { d = addDays(d, step); } while (isSunday(d));
+  }
+  return d;
+}
 
 function weekStart(dateISO) {
   const d = parseISO(dateISO);
-  const diff = (d.getDay() - CFG.WEEK_START + 7) % 7;
+  const diff = (d.getDay() - (CFG.WEEK_START || 1) + 7) % 7;
   d.setDate(d.getDate() - diff);
   return iso(d);
 }
-function weekDays(startISO, n) {
-  return Array.from({ length: n }, (_, i) => addDays(startISO, i));
-}
+function weekDays(startISO, n) { return workingDays(startISO, n); }
+
 function shortDate(s) {
   const d = parseISO(s);
   return DAY_NAMES[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
@@ -93,8 +128,8 @@ function toast(msg, kind = 'info') {
   if (!box) { box = el('div', { id: 'toast' }); document.body.appendChild(box); }
   const t = el('div', { class: 'toast toast--' + kind, text: msg });
   box.appendChild(t);
-  setTimeout(() => t.classList.add('toast--out'), 2600);
-  setTimeout(() => t.remove(), 3200);
+  setTimeout(() => t.classList.add('toast--out'), 3000);
+  setTimeout(() => t.remove(), 3600);
 }
 
 function fmt(n) {
@@ -120,5 +155,39 @@ const Store = {
     if (r !== undefined && r !== '') return r;
     const p = this.boot.products.find(x => x.code === product);
     return p ? p.std : '';
+  },
+
+  /** Adds a product to M_PRODUCT (and a routing rate for this machine). */
+  async addProduct(dept, res) {
+    const code = (prompt('New product name (as it should appear on the board)') || '').trim().toUpperCase();
+    if (!code) return null;
+    const std = prompt('Standard quantity per shift on this machine', '0');
+    if (std === null) return null;
+    const adminPin = Auth.needAdmin();
+    if (!adminPin) return null;
+    await api('addProduct', { dept, res, code, std: Number(std) || 0, adminPin });
+    await this.bootstrap(true);
+    toast('Product "' + code + '" added', 'ok');
+    return code;
+  },
+
+  /** Adds an operator to M_OPERATOR. */
+  async addOperator(dept, shift) {
+    const name = (prompt('New ' + (Store.dept(dept).operatorLabel || 'operator').toLowerCase() + ' name') || '').trim().toUpperCase();
+    if (!name) return null;
+    const adminPin = Auth.needAdmin();
+    if (!adminPin) return null;
+    await api('addOperator', { dept, name, shift: shift || '', adminPin });
+    await this.bootstrap(true);
+    toast('"' + name + '" added', 'ok');
+    return name;
   }
 };
+
+/* --------------------------------------------------------------- chrome */
+
+function mastheadLogo() {
+  const img = $('.bar .logo');
+  if (img) img.addEventListener('error', () => img.remove());
+}
+window.addEventListener('DOMContentLoaded', mastheadLogo);
