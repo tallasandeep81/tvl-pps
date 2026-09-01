@@ -161,7 +161,7 @@ tr.night th.shift, tr.night td.cell { background: var(--night); }
 
 /* ----------------------------------------------------------------- cell */
 
-td.cell { background: var(--surface); min-width: 185px; vertical-align: top; }
+td.cell { background: var(--surface); min-width: 195px; vertical-align: top; }
 td.cell .stack { display: grid; gap: 3px; padding: 5px 6px; }
 td.cell select, td.cell input {
   width: 100%; border: 1px solid transparent; background: transparent;
@@ -170,7 +170,15 @@ td.cell select, td.cell input {
 td.cell select:hover, td.cell input:hover { border-color: var(--rule-strong); background: #fff; }
 td.cell select:focus, td.cell input:focus { border-color: var(--blue); background: #fff; }
 td.cell .prod { font-weight: 600; color: var(--navy); }
-td.cell .op { color: var(--ink-2); font-size: 12px; }
+td.cell .op { color: var(--ink-2); font-size: 12px; font-weight: 500; }
+td.cell .members {
+  display: flex; flex-wrap: wrap; gap: 3px 5px; padding: 0 5px 2px;
+}
+td.cell .members span {
+  font-size: 10.5px; line-height: 1.3; color: var(--ink-2);
+  background: var(--blue-pale); border-radius: 3px; padding: 1px 5px;
+  white-space: nowrap;
+}
 td.cell .line {
   display: grid; grid-template-columns: 46px 1fr; align-items: center; gap: 4px;
   border-top: 1px solid var(--rule); padding-top: 2px;
