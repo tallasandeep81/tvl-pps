@@ -31,7 +31,7 @@ async function load() {
       res: r.id, name: r.name, product: c.product || '', operator: c.operator || '',
       plan: c.plan === undefined ? '' : c.plan,
       actual: c.actual === undefined ? '' : c.actual,
-      rej: c.rej === undefined ? '' : c.rej
+      reason: c.remarks || ''
     };
   }).filter(r => r.product);
 
@@ -47,12 +47,10 @@ function render() {
     return;
   }
 
-  list.appendChild(el('div', {
-    class: 'entry-row', style: 'font-size:13px;color:#7b8792;background:#f0f3f6'
-  }, [
+  list.appendChild(el('div', { class: 'entry-row entry-row--head' }, [
     el('div', { text: 'Machine and product' }),
     el('div', { style: 'text-align:right', text: 'Produced' }),
-    el('div', { style: 'text-align:right', text: 'Rejected' })
+    el('div', { text: 'Reason, if short of plan' })
   ]));
 
   A.rows.forEach((r, i) => {
@@ -60,11 +58,51 @@ function render() {
       el('b', { text: r.name + ' · ' + r.product }),
       el('small', { text: (r.operator ? r.operator + ' · ' : '') + 'plan ' + fmt(r.plan) })
     ]);
-    const act = el('input', { type: 'number', min: '0', inputmode: 'numeric', value: r.actual === '' ? '' : r.actual, 'aria-label': 'Produced on ' + r.name });
-    const rej = el('input', { type: 'number', min: '0', inputmode: 'numeric', value: r.rej === '' ? '' : r.rej, 'aria-label': 'Rejected on ' + r.name });
-    act.addEventListener('input', () => { r.actual = act.value === '' ? '' : Number(act.value); A.dirty.add(i); markDirty(); summarise(); });
-    rej.addEventListener('input', () => { r.rej = rej.value === '' ? '' : Number(rej.value); A.dirty.add(i); markDirty(); });
-    list.appendChild(el('div', { class: 'entry-row' }, [what, act, rej]));
+    const act = el('input', {
+      type: 'number', min: '0', inputmode: 'numeric',
+      value: r.actual === '' ? '' : r.actual, 'aria-label': 'Produced on ' + r.name
+    });
+
+    const reasons = CFG.REASONS || [];
+    const sel = el('select', { class: 'reason', 'aria-label': 'Reason on ' + r.name });
+    sel.appendChild(el('option', { value: '', text: '—' }));
+    reasons.forEach(x => sel.appendChild(el('option', { value: x, text: x })));
+    const known = r.reason && reasons.indexOf(r.reason) >= 0;
+    if (known) sel.value = r.reason;
+    else if (r.reason) {
+      sel.appendChild(el('option', { value: r.reason, text: r.reason }));
+      sel.value = r.reason;
+    }
+
+    const row = el('div', { class: 'entry-row' }, [what, act, sel]);
+
+    function shortfall() {
+      const p = Number(r.plan) || 0, a = Number(r.actual);
+      return r.actual !== '' && a < p;
+    }
+    function paint() {
+      row.classList.toggle('needs-reason', shortfall() && !r.reason);
+      sel.classList.toggle('required', shortfall() && !r.reason);
+    }
+
+    act.addEventListener('input', () => {
+      r.actual = act.value === '' ? '' : Number(act.value);
+      A.dirty.add(i); markDirty(); summarise(); paint();
+    });
+    sel.addEventListener('change', () => {
+      if (sel.value === 'Other') {
+        const txt = (prompt('Type the reason') || '').trim();
+        if (!txt) { sel.value = r.reason || ''; return; }
+        let o = Array.from(sel.options).find(x => x.value === txt);
+        if (!o) { o = el('option', { value: txt, text: txt }); sel.appendChild(o); }
+        sel.value = txt;
+      }
+      r.reason = sel.value;
+      A.dirty.add(i); markDirty(); paint();
+    });
+
+    paint();
+    list.appendChild(row);
   });
   summarise();
 }
@@ -86,9 +124,18 @@ function markDirty() {
 async function save() {
   const d = Store.dept(A.dept);
   const shift = d.hasShift ? A.shift : 'DAY';
+
+  const missing = A.rows.filter(r =>
+    r.actual !== '' && Number(r.actual) < (Number(r.plan) || 0) && !r.reason);
+  if (missing.length) {
+    toast('Give a reason for ' + missing.slice(0, 3).map(r => r.name).join(', ') +
+      (missing.length > 3 ? ' and ' + (missing.length - 3) + ' more' : ''), 'err');
+    return;
+  }
+
   const cells = Array.from(A.dirty).map(i => {
     const r = A.rows[i];
-    return { dept: A.dept, date: A.date, shift, res: r.res, actual: r.actual, rej: r.rej };
+    return { dept: A.dept, date: A.date, shift, res: r.res, actual: r.actual, remarks: r.reason };
   });
   const btn = $('#saveBtn');
   btn.disabled = true; btn.textContent = 'Saving…';
