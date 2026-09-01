@@ -304,11 +304,62 @@ table.list tbody tr:hover { background: var(--blue-pale); }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
+/* -------------------------------------------------- print header + blank */
+
+.print-head, #blankWrap, .blank-foot { display: none; }
+.print-head {
+  align-items: center; justify-content: space-between;
+  padding: 0 0 8px; margin-bottom: 10px; border-bottom: 2px solid var(--navy);
+}
+.print-head .ph-left { display: flex; align-items: center; gap: 10px; }
+.print-head .ph-left img { height: 34px; width: auto; }
+.print-head .ph-left b { display: block; font-size: 14px; color: var(--navy); }
+.print-head .ph-left span {
+  font-size: 8px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-2);
+}
+.print-head .ph-right { text-align: right; }
+.print-head .ph-right b { display: block; font-size: 16px; color: var(--navy); }
+.print-head .ph-right span { font-size: 11px; color: var(--ink-2); }
+
+.blank-foot {
+  justify-content: space-between; gap: 30px; margin-top: 22px;
+  font-size: 11px; color: var(--ink-2);
+}
+table.board.blank td.cell .line { min-height: 19px; }
+table.board.blank .blankbox { display: block; height: 15px; }
+
 @media print {
-  header.bar nav, .toolbar, .panels { display: none; }
+  @page { size: A4 landscape; margin: 10mm; }
+
+  header.bar, .toolbar, .panels, #modal { display: none !important; }
+  .print-head { display: flex; }
+  .blank-foot { display: flex; }
+
+  /* keep only the period and the total on paper */
+  .kpi:nth-child(n+3) { display: none; }
+  .kpis { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px; }
+  .kpi { box-shadow: none; padding: 8px 12px; }
+  .kpi .value { font-size: 18px; }
+
+  th.res .btn { display: none; }
+
   .board-wrap { max-height: none; overflow: visible; border: none; box-shadow: none; }
-  td.cell select, td.cell input { border: none; -webkit-appearance: none; appearance: none; }
-  table.board thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  td.cell select, td.cell input {
+    border: none !important; background: transparent !important;
+    -webkit-appearance: none; appearance: none; padding-left: 0;
+  }
+  td.cell .members span { background: transparent; padding: 0 4px 0 0; }
+  table.board thead { display: table-header-group; }
+  table.board tr { page-break-inside: avoid; }
+  table.board thead th, td.cell.idle, .kpi .value.amber, .print-head {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+
+  /* blank format: hide the live board, print the empty grid only */
+  body.printing-blank main > .kpis,
+  body.printing-blank main > .print-head,
+  body.printing-blank #board { display: none !important; }
+  body.printing-blank #blankWrap { display: block; }
 }
 
 /* ---------------------------------------------------------------- modal */
