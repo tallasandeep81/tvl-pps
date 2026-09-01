@@ -24,6 +24,15 @@ async function load() {
 
   const name = c => (Store.boot.depts.find(x => x.code === c) || {}).name || c;
 
+  const tot = d.depts.reduce((a, r) => ({
+    plan: a.plan + r.plan, actual: a.actual + r.actual, rej: a.rej + r.rej
+  }), { plan: 0, actual: 0, rej: 0 });
+  document.querySelector('#kpiPlan').textContent = fmt(tot.plan);
+  document.querySelector('#kpiActual').textContent = fmt(tot.actual);
+  document.querySelector('#kpiPct').textContent = tot.plan ? Math.round(tot.actual / tot.plan * 100) + '%' : '—';
+  document.querySelector('#kpiRej').textContent = fmt(tot.rej);
+  document.querySelector('#kpiIdle').textContent = d.idleCount;
+
   $('#depts').innerHTML = '';
   $('#depts').appendChild(table(
     [{ t: 'Department' }, { t: 'Plan', n: 1 }, { t: 'Actual', n: 1 }, { t: 'Rejected', n: 1 }, { t: 'Met', n: 1 }, { t: 'Idle slots', n: 1 }],
@@ -69,9 +78,9 @@ async function load() {
 window.addEventListener('DOMContentLoaded', async () => {
   if (!await Auth.gate()) return;
   $('#who').textContent = Auth.user;
-  const start = weekStart(todayISO());
+  const start = nextWorkingDay(todayISO());
   $('#from').value = start;
-  $('#to').value = addDays(start, CFG.DAYS - 1);
+  $('#to').value = workingDays(start, CFG.DAYS)[CFG.DAYS - 1];
   $('#go').onclick = () => load().catch(e => toast(e.message, 'err'));
   $('#printBtn').onclick = () => window.print();
   load().catch(e => toast(e.message, 'err'));
