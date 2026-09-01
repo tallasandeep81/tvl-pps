@@ -53,6 +53,7 @@ async function switchDept(code) {
   if (S.dirty.size && !confirm('You have unsaved changes. Leave them?')) return;
   S.dept = code;
   buildTabs();
+  $('#mgOperators').style.display = Store.dept(S.dept).hasOperator ? '' : 'none';
   await loadWeek();
 }
 
@@ -400,6 +401,108 @@ async function save() {
   }
 }
 
+/* --------------------------------------------------------- master editor */
+
+function closeModal() {
+  const m = $('#modal');
+  if (m) { m.innerHTML = ''; m.classList.remove('open'); }
+}
+
+function openManager(kind) {
+  const dept = Store.dept(S.dept);
+  const isProduct = kind === 'product';
+  const items = isProduct ? Store.products(S.dept) : Store.operators(S.dept);
+  const title = isProduct ? 'Products' : dept.operatorLabel + 's';
+
+  const box = $('#modal');
+  box.innerHTML = '';
+  box.classList.add('open');
+
+  const panel = el('div', { class: 'modal' });
+  panel.appendChild(el('div', { class: 'modal-head' }, [
+    el('h3', { text: 'Edit ' + title.toLowerCase() + ' — ' + dept.name }),
+    el('button', { class: 'btn', text: 'Close', onclick: closeModal })
+  ]));
+
+  const body = el('div', { class: 'modal-body' });
+  if (!items.length) body.appendChild(el('p', { class: 'empty', text: 'Nothing here yet.' }));
+
+  const head = el('div', { class: 'mrow mrow--head' }, [
+    el('span', { text: 'Name' }),
+    el('span', { text: isProduct ? 'Std / shift' : 'Shift' }),
+    el('span', { text: 'Status' }),
+    el('span', { text: '' })
+  ]);
+  if (items.length) body.appendChild(head);
+
+  items.forEach(it => {
+    const oldName = isProduct ? it.code : it.name;
+    const name = el('input', { type: 'text', value: oldName });
+    const extra = isProduct
+      ? el('input', { type: 'number', min: '0', step: '10', value: it.std || 0 })
+      : (() => {
+          const sel = el('select');
+          [['', 'Any'], ['DAY', 'Day'], ['NIGHT', 'Night']].forEach(([v, t]) => {
+            const o = el('option', { value: v, text: t });
+            if ((it.shift || '') === v) o.selected = true;
+            sel.appendChild(o);
+          });
+          return sel;
+        })();
+    const st = el('select');
+    [['ACTIVE', 'Active'], ['INACTIVE', 'Hidden']].forEach(([v, t]) => {
+      st.appendChild(el('option', { value: v, text: t }));
+    });
+
+    const save = el('button', { class: 'btn btn--primary', text: 'Save' });
+    save.addEventListener('click', async () => {
+      const newName = name.value.trim().toUpperCase();
+      if (!newName) { toast('Name cannot be blank', 'err'); return; }
+      const adminPin = Auth.needAdmin();
+      if (!adminPin) return;
+      save.disabled = true; save.textContent = '…';
+      try {
+        const out = await api('updateMaster', {
+          kind, dept: S.dept, oldName, newName, adminPin,
+          status: st.value,
+          std: isProduct ? Number(extra.value) || 0 : undefined,
+          shift: isProduct ? undefined : extra.value
+        });
+        await Store.bootstrap(true);
+        toast(oldName === newName
+          ? 'Saved'
+          : 'Renamed to ' + newName + (out.cascaded ? ' — ' + out.cascaded + ' existing rows updated' : ''), 'ok');
+        closeModal();
+        await loadWeek();
+      } catch (e) {
+        toast(e.message, 'err');
+        save.disabled = false; save.textContent = 'Save';
+      }
+    });
+
+    body.appendChild(el('div', { class: 'mrow' }, [name, extra, st, save]));
+  });
+
+  panel.appendChild(body);
+  panel.appendChild(el('div', { class: 'modal-foot' }, [
+    el('span', { class: 'empty', text: 'Renaming also updates every plan row, routing and demand line that used the old name.' }),
+    el('button', {
+      class: 'btn', text: '+ Add new',
+      onclick: async () => {
+        try {
+          const added = isProduct
+            ? await Store.addProduct(S.dept, null)
+            : await Store.addOperator(S.dept, '');
+          if (added) { closeModal(); await loadWeek(); }
+        } catch (e) { toast(e.message, 'err'); }
+      }
+    })
+  ]));
+
+  box.appendChild(panel);
+  box.addEventListener('click', e => { if (e.target === box) closeModal(); });
+}
+
 /* ------------------------------------------------------------------ wire */
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -411,6 +514,9 @@ window.addEventListener('DOMContentLoaded', () => {
   $('#copyBtn').onclick = () => copyLastWeek().catch(e => toast(e.message, 'err'));
   $('#saveBtn').onclick = () => save();
   $('#printBtn').onclick = () => window.print();
+  $('#mgProducts').onclick = () => openManager('product');
+  $('#mgOperators').onclick = () => openManager('operator');
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
   window.addEventListener('beforeunload', e => { if (S.dirty.size) { e.preventDefault(); e.returnValue = ''; } });
   start().catch(e => toast(e.message, 'err'));
 });
