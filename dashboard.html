@@ -4,15 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Plan vs actual — TVL Production Planning</title>
+<link rel="icon" href="logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
 
 <header class="bar">
-  <h1>Trans Valves <span>Plan vs actual</span></h1>
+  <img src="logo.png" alt="TVL" class="logo">
+  <div class="brand">
+    <b>Trans Valves India Private Limited</b>
+    <span>When Safety Matters</span>
+  </div>
+  <h1>Plan vs <span>Actual</span></h1>
   <nav>
     <a href="index.html">Planning board</a>
     <a href="actual.html">Shift entry</a>
@@ -31,6 +37,14 @@
 </div>
 
 <main>
+  <div class="kpis">
+    <div class="kpi"><div class="label">Total planned</div><div class="value" id="kpiPlan">0</div><div class="note">pieces</div></div>
+    <div class="kpi"><div class="label">Total produced</div><div class="value blue" id="kpiActual">0</div><div class="note">pieces reported</div></div>
+    <div class="kpi"><div class="label">Attainment</div><div class="value amber" id="kpiPct">—</div><div class="note">actual against plan</div></div>
+    <div class="kpi"><div class="label">Rejected</div><div class="value" id="kpiRej">0</div><div class="note">pieces</div></div>
+    <div class="kpi"><div class="label">Idle shifts</div><div class="value" id="kpiIdle">0</div><div class="note">no product planned</div></div>
+  </div>
+
   <div class="panels">
     <section class="panel">
       <h2>By department</h2>
