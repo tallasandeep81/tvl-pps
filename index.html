@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Planning board — TVL Production Planning</title>
+<title>Production Planning</title>
 <link rel="icon" href="logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -62,6 +62,7 @@
         <span>When Safety Matters</span>
       </div>
     </div>
+    <div class="ph-mid"><b>PRODUCTION PLANNING</b></div>
     <div class="ph-right">
       <b id="phDept">—</b>
       <span id="phPeriod">—</span>
@@ -77,6 +78,13 @@
   </div>
 
   <div id="board"><p class="loading">Loading…</p></div>
+
+  <section class="panel notes-panel">
+    <h2>Notes and instructions <span class="empty" id="notesMeta"></span></h2>
+    <div class="body">
+      <textarea id="notes" rows="4" placeholder="Instructions for this department and week — material shortages, target quantities, holidays, machine servicing, anything the shop floor should read with the plan."></textarea>
+    </div>
+  </section>
 
   <div class="panels">
     <section class="panel">
