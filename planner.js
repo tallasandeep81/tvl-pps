@@ -391,6 +391,9 @@ function coverage() {
   $('#kpiLoad').textContent = pct + '%';
   $('#kpiIdle').textContent = (slots - loaded);
   $('#kpiRange').textContent = shortDate(days[0]) + ' – ' + shortDate(days[days.length - 1]);
+  $('#phDept').textContent = Store.dept(S.dept).name;
+  $('#phPeriod').textContent = shortDate(days[0]) + ' – ' + shortDate(days[days.length - 1]) +
+    '  ·  ' + days[0].split('-').reverse().join('.') + ' to ' + days[days.length - 1].split('-').reverse().join('.');
 }
 
 /* ------------------------------------------------------------------ save */
@@ -521,6 +524,94 @@ function openManager(kind) {
   box.addEventListener('click', e => { if (e.target === box) closeModal(); });
 }
 
+/* --------------------------------------------------------- blank format */
+
+/** Builds an empty grid for the current department and period, then prints it. */
+function printBlank() {
+  const d = Store.dept(S.dept);
+  const days = workingDays(S.start, S.days);
+  const shifts = d.hasShift ? ['DAY', 'NIGHT'] : ['DAY'];
+  const lines = d.hasOperator
+    ? ['Product', d.operatorLabel, 'Plan', 'Actual']
+    : ['Product', 'Plan', 'Actual'];
+
+  const wrap = el('div', { class: 'blank-sheet' });
+
+  const head = el('div', { class: 'print-head' });
+  const left = el('div', { class: 'ph-left' });
+  left.appendChild(el('img', { src: 'logo.png', alt: 'TVL' }));
+  const brand = el('div');
+  brand.appendChild(el('b', { text: 'Trans Valves India Private Limited' }));
+  brand.appendChild(el('span', { text: 'When Safety Matters' }));
+  left.appendChild(brand);
+  const right = el('div', { class: 'ph-right' });
+  right.appendChild(el('b', { text: d.name }));
+  right.appendChild(el('span', {
+    text: days[0].split('-').reverse().join('.') + ' to ' + days[days.length - 1].split('-').reverse().join('.')
+  }));
+  head.appendChild(left); head.appendChild(right);
+  wrap.appendChild(head);
+
+  const table = el('table', { class: 'board blank' });
+  const hr = el('tr');
+  hr.appendChild(el('th', { class: 'res', text: d.resourceLabel }));
+  if (d.hasShift) hr.appendChild(el('th', { class: 'shift', text: 'Shift' }));
+  days.forEach(day => {
+    const th = el('th', { text: shortDate(day) });
+    th.appendChild(el('small', { text: day.split('-').reverse().join('.') }));
+    hr.appendChild(th);
+  });
+  table.appendChild(el('thead', {}, hr));
+
+  const tb = el('tbody');
+  Store.resources(S.dept).forEach(r => {
+    shifts.forEach((sh, si) => {
+      const tr = el('tr', { class: sh === 'NIGHT' ? 'night' : '' });
+      if (si === 0) {
+        const th = el('th', { class: 'res', rowspan: shifts.length });
+        th.appendChild(el('div', { text: r.name }));
+        th.appendChild(el('span', { class: 'type', text: r.type }));
+        tr.appendChild(th);
+      }
+      if (d.hasShift) tr.appendChild(el('th', { class: 'shift', text: sh === 'DAY' ? 'Day' : 'Night' }));
+      days.forEach(() => {
+        const td = el('td', { class: 'cell' });
+        const stack = el('div', { class: 'stack' });
+        lines.forEach(label => {
+          const line = el('div', { class: 'line' });
+          line.appendChild(el('b', { text: label }));
+          line.appendChild(el('span', { class: 'blankbox' }));
+          stack.appendChild(line);
+        });
+        td.appendChild(stack);
+        tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+  });
+  table.appendChild(tb);
+  wrap.appendChild(table);
+
+  const foot = el('div', { class: 'blank-foot' });
+  foot.appendChild(el('span', { text: 'Planned by ______________________' }));
+  foot.appendChild(el('span', { text: 'Checked by ______________________' }));
+  foot.appendChild(el('span', { text: 'Approved by ______________________' }));
+  wrap.appendChild(foot);
+
+  const box = $('#blankWrap');
+  box.innerHTML = '';
+  box.appendChild(wrap);
+  document.body.classList.add('printing-blank');
+
+  const cleanup = () => {
+    document.body.classList.remove('printing-blank');
+    box.innerHTML = '';
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(() => window.print(), 120);
+}
+
 /* ------------------------------------------------------------------ wire */
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -532,6 +623,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('#copyBtn').onclick = () => copyLastWeek().catch(e => toast(e.message, 'err'));
   $('#saveBtn').onclick = () => save();
   $('#printBtn').onclick = () => window.print();
+  $('#blankBtn').onclick = () => printBlank();
   $('#mgProducts').onclick = () => openManager('product');
   $('#mgOperators').onclick = () => openManager('operator');
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
