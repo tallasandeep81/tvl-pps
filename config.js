@@ -7,5 +7,21 @@ window.PPS_CONFIG = {
   DAYS: 6,
 
   // Week starts on Monday (1). Sunday = 0.
-  WEEK_START: 1
+  WEEK_START: 1,
+
+  // Reasons offered on the Shift entry screen when output falls short of plan.
+  // Edit this list freely — add, remove or reword. "Other" always asks for typed text.
+  REASONS: [
+    'Machine breakdown',
+    'Tool / insert change',
+    'Setting or trial time',
+    'Material not available',
+    'Power failure',
+    'Operator absent',
+    'Quality problem / rework',
+    'Maintenance work',
+    'Plan changed by planning',
+    'Shift started late / ended early',
+    'Other'
+  ]
 };
