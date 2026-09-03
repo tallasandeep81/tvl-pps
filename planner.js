@@ -70,6 +70,7 @@ async function switchDept(code) {
 }
 
 async function loadWeek() {
+  closeRepeat();
   S.cells.clear(); S.dirty.clear(); markDirty();
   $('#board').innerHTML = '<p class="loading">Loading plan…</p>';
   const days = workingDays(S.start, S.days);
@@ -180,6 +181,7 @@ function renderCell(dept, res, day, shift) {
     else if (c.plan === '' || c.plan === prevStd) c.plan = Store.stdQty(res.id, c.product) || '';
     touch(td, day, shift, res.id);
     render();
+    if (c.product) askRepeat(day, shift, res.id);
   });
   stack.appendChild(prod);
 
@@ -207,6 +209,7 @@ function renderCell(dept, res, day, shift) {
       c.operator = op.value;
       touch(td, day, shift, res.id);
       render();
+      if (c.product && c.operator) askRepeat(day, shift, res.id);
     });
     stack.appendChild(op);
 
@@ -446,6 +449,101 @@ async function save() {
   }
 }
 
+/* ------------------------------------------------------ repeat forward */
+
+function closeRepeat() {
+  const p = $('#repeatPop');
+  if (p) p.remove();
+  document.removeEventListener('mousedown', outsideRepeat, true);
+}
+function outsideRepeat(e) {
+  const p = $('#repeatPop');
+  if (p && !p.contains(e.target)) closeRepeat();
+}
+
+/** Copies this cell's product, person and quantity forward n days on the same row. */
+function repeatForward(day, shift, resId, n) {
+  const days = workingDays(S.start, S.days);
+  const i = days.indexOf(day);
+  const src = cell(day, shift, resId);
+  for (let k = 1; k < n; k++) {
+    const target = days[i + k];
+    if (!target) break;
+    const t = cell(target, shift, resId);
+    t.product = src.product;
+    t.operator = src.operator;
+    t.plan = src.plan;
+    S.dirty.add(ck(target, shift, resId));
+  }
+  markDirty();
+  closeRepeat();
+  render();
+  toast('Carried forward for ' + n + ' days', 'ok');
+}
+
+/** Asks how long to keep the same product and person running on this machine. */
+function askRepeat(day, shift, resId) {
+  if (sessionStorage.getItem('pps_norepeat') === '1') return;
+  const days = workingDays(S.start, S.days);
+  const i = days.indexOf(day);
+  const ahead = days.length - i - 1;
+  if (i < 0 || ahead < 1) return;
+
+  const c = cell(day, shift, resId);
+  if (!c.product) return;
+
+  const td = $('[data-key="' + ck(day, shift, resId) + '"]');
+  if (!td) return;
+
+  closeRepeat();
+  const pop = el('div', { id: 'repeatPop', class: 'popover' });
+
+  const res = Store.resources(S.dept).find(r => r.id === resId);
+  pop.appendChild(el('div', { class: 'pop-head' }, [
+    el('b', { text: c.product }),
+    el('span', {
+      text: (c.operator ? opLabel(c.operator) + ' · ' : '') + res.name +
+            (Store.dept(S.dept).hasShift ? ' · ' + shift.toLowerCase() : '')
+    })
+  ]));
+  pop.appendChild(el('p', { class: 'pop-q', text: 'How many days should this run?' }));
+
+  const opts = el('div', { class: 'pop-opts' });
+  const max = ahead + 1;
+  const choices = [];
+  for (let n = 2; n <= Math.min(max, 5); n++) choices.push(n);
+  if (max > 5) choices.push(max);
+
+  choices.forEach(n => {
+    opts.appendChild(el('button', {
+      class: 'btn' + (n === max ? ' btn--primary' : ''),
+      text: n === max ? 'All ' + n + ' days' : n + ' days',
+      title: n === max ? 'To the end of the period' : '',
+      onclick: () => repeatForward(day, shift, resId, n)
+    }));
+  });
+  pop.appendChild(opts);
+
+  pop.appendChild(el('div', { class: 'pop-foot' }, [
+    el('button', { class: 'linkish', text: 'Just this day', onclick: closeRepeat }),
+    el('button', {
+      class: 'linkish', text: "Don't ask again",
+      onclick: () => { sessionStorage.setItem('pps_norepeat', '1'); closeRepeat(); }
+    })
+  ]));
+
+  document.body.appendChild(pop);
+  const r = td.getBoundingClientRect();
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  let left = r.left, top = r.bottom + 6;
+  if (left + w > window.innerWidth - 12) left = window.innerWidth - w - 12;
+  if (top + h > window.innerHeight - 12) top = Math.max(12, r.top - h - 6);
+  pop.style.left = Math.max(12, left) + 'px';
+  pop.style.top = top + 'px';
+
+  setTimeout(() => document.addEventListener('mousedown', outsideRepeat, true), 0);
+}
+
 /* --------------------------------------------------------- master editor */
 
 function closeModal() {
@@ -661,7 +759,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('#notes').addEventListener('input', e => { S.notes = e.target.value; S.notesDirty = true; markDirty(); });
   $('#mgProducts').onclick = () => openManager('product');
   $('#mgOperators').onclick = () => openManager('operator');
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeRepeat(); } });
   window.addEventListener('beforeunload', e => { if (S.dirty.size || S.notesDirty) { e.preventDefault(); e.returnValue = ''; } });
   start().catch(e => toast(e.message, 'err'));
 });
