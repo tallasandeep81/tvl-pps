@@ -181,7 +181,7 @@ function renderCell(dept, res, day, shift) {
     else if (c.plan === '' || c.plan === prevStd) c.plan = Store.stdQty(res.id, c.product) || '';
     touch(td, day, shift, res.id);
     render();
-    if (c.product) askRepeat(day, shift, res.id);
+    if (cellReady(c)) askRepeat(day, shift, res.id);
   });
   stack.appendChild(prod);
 
@@ -209,7 +209,7 @@ function renderCell(dept, res, day, shift) {
       c.operator = op.value;
       touch(td, day, shift, res.id);
       render();
-      if (c.product && c.operator) askRepeat(day, shift, res.id);
+      if (cellReady(c)) askRepeat(day, shift, res.id);
     });
     stack.appendChild(op);
 
@@ -451,6 +451,12 @@ async function save() {
 
 /* ------------------------------------------------------ repeat forward */
 
+/** A cell is ready once it has a product, and a person too where the department needs one. */
+function cellReady(c) {
+  const d = Store.dept(S.dept);
+  return !!c.product && (!d.hasOperator || !!c.operator);
+}
+
 function closeRepeat() {
   const p = $('#repeatPop');
   if (p) p.remove();
@@ -490,7 +496,7 @@ function askRepeat(day, shift, resId) {
   if (i < 0 || ahead < 1) return;
 
   const c = cell(day, shift, resId);
-  if (!c.product) return;
+  if (!cellReady(c)) return;
 
   const td = $('[data-key="' + ck(day, shift, resId) + '"]');
   if (!td) return;
