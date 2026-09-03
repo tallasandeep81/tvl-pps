@@ -496,3 +496,29 @@ td.cell .reason-note {
   padding: 1px 5px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 @media print { td.cell .reason-note { font-size: 7.5px; padding: 0 3px; } }
+
+/* ------------------------------------------------------- repeat popover */
+
+.popover {
+  position: fixed; z-index: 70; width: 268px;
+  background: var(--surface); border: 1px solid var(--rule-strong);
+  border-radius: var(--radius); box-shadow: 0 16px 40px -14px rgba(20, 34, 58, .55);
+  padding: 12px 14px;
+}
+.popover .pop-head { display: grid; gap: 1px; margin-bottom: 8px; }
+.popover .pop-head b { font-size: 14px; color: var(--navy); }
+.popover .pop-head span { font-size: 11px; color: var(--ink-3); }
+.popover .pop-q { margin: 0 0 8px; font-size: 12px; color: var(--ink-2); }
+.popover .pop-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.popover .pop-opts .btn { padding: 5px 11px; font-size: 13px; }
+.popover .pop-foot {
+  display: flex; justify-content: space-between; gap: 10px;
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--rule);
+}
+.linkish {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font-size: 11px; color: var(--ink-3); text-decoration: underline;
+}
+.linkish:hover { color: var(--navy); }
+
+@media print { .popover { display: none !important; } }
