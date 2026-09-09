@@ -568,6 +568,29 @@ function askRepeat(day, shift, resId) {
   setTimeout(() => document.addEventListener('mousedown', outsideRepeat, true), 0);
 }
 
+/* ---------------------------------------------------------- roster sync */
+
+/** Re-reads the Gents/Ladies roster workbook and reloads the board. */
+async function syncRoster() {
+  const adminPin = Auth.needAdmin();
+  if (!adminPin) return;
+  const btn = $('#syncBtn');
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Syncing…';
+  try {
+    const out = await api('syncRoster', { adminPin });
+    await Store.bootstrap(true);
+    await loadWeek();
+    toast(out.message || 'Roster synced', 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
 /* --------------------------------------------------------- master editor */
 
 function closeModal() {
@@ -786,6 +809,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('#notes').addEventListener('input', e => { S.notes = e.target.value; S.notesDirty = true; markDirty(); });
   $('#mgProducts').onclick = () => openManager('product');
   $('#mgOperators').onclick = () => openManager('operator');
+  $('#syncBtn').onclick = () => syncRoster();
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeRepeat(); } });
   window.addEventListener('beforeunload', e => { if (S.dirty.size || S.notesDirty) { e.preventDefault(); e.returnValue = ''; } });
   start().catch(e => toast(e.message, 'err'));
