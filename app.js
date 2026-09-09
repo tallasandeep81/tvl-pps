@@ -149,7 +149,7 @@ const Store = {
   dept(code) { return this.boot.depts.find(d => d.code === code); },
   resources(code) { return this.boot.resources.filter(r => r.dept === code); },
   products(code) { return this.boot.products.filter(p => p.dept === code); },
-  operators(code) { return this.boot.operators.filter(o => o.dept === code); },
+  operators(code) { return this.boot.operators.filter(o => o.dept === code || o.dept === 'ALL'); },
   stdQty(res, product) {
     const r = this.boot.routing[res + '|' + product];
     if (r !== undefined && r !== '') return r;
