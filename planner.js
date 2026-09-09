@@ -189,10 +189,28 @@ function renderCell(dept, res, day, shift) {
   if (dept.hasOperator) {
     const op = el('select', { class: 'op' });
     op.appendChild(el('option', { value: '', text: '— not assigned —' }));
+
+    // grouped by roster section, so a 200-name list stays navigable
+    const groups = new Map();
     Store.operators(S.dept).forEach(o => {
-      const opt = el('option', { value: o.name, text: opLabel(o.name), title: o.name });
-      if (o.name === c.operator) opt.selected = true;
-      op.appendChild(opt);
+      const g = o.section || 'Other';
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(o);
+    });
+    const ordered = Array.from(groups.keys()).sort((a, b) => {
+      if (a === 'Other') return 1;
+      if (b === 'Other') return -1;
+      return a.localeCompare(b);
+    });
+    const single = ordered.length <= 1;
+    ordered.forEach(g => {
+      const parent = single ? op : el('optgroup', { label: g });
+      groups.get(g).forEach(o => {
+        const opt = el('option', { value: o.name, text: opLabel(o.name), title: o.name + (o.section ? '  —  ' + o.section : '') });
+        if (o.name === c.operator) opt.selected = true;
+        parent.appendChild(opt);
+      });
+      if (!single) op.appendChild(parent);
     });
     op.title = c.operator || '';
     op.appendChild(el('option', { value: ADD_NEW, text: '+ Add new ' + dept.operatorLabel.toLowerCase() + '…' }));
@@ -586,7 +604,10 @@ function openManager(kind) {
 
   items.forEach(it => {
     const oldName = isProduct ? it.code : it.name;
-    const name = el('input', { type: 'text', value: oldName });
+    const name = el('input', {
+      type: 'text', value: oldName,
+      title: isProduct ? '' : (it.section ? 'Roster section: ' + it.section : '')
+    });
     const extra = isProduct
       ? el('input', { type: 'number', min: '0', step: '10', value: it.std || 0 })
       : (() => {
