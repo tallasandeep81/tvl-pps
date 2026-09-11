@@ -1,12 +1,13 @@
 /* TVL PPS — planning board */
 
 const ADD_NEW = '__ADD_NEW__';
+const OP_SEP = ' + ';
 
 const S = {
   dept: null,
-  start: nextWorkingDay(todayISO()),   // today onwards, Sundays skipped
+  start: nextWorkingDay(todayISO()),
   days: CFG.DAYS || 6,
-  cells: new Map(),                   // "date|shift|res" -> {product, operator, plan, actual, rej}
+  cells: new Map(),                 // "date|shift|res" -> {product, operator, plan, actual, rej, remarks}
   dirty: new Set(),
   demand: [],
   notes: '',
@@ -15,7 +16,19 @@ const S = {
 
 const ck = (date, shift, res) => [date, shift, res].join('|');
 
-/* "TEAM A - NARENDRA/RAJU/GOVIND/AMAN" -> label "TEAM A", members listed below it */
+function cell(date, shift, res) {
+  const k = ck(date, shift, res);
+  if (!S.cells.has(k)) {
+    S.cells.set(k, { product: '', operator: '', plan: '', actual: '', rej: '', remarks: '' });
+  }
+  return S.cells.get(k);
+}
+
+/* Several people can share one slot. They live in the one OPERATOR cell, joined by " + ". */
+function opList(v) { return String(v || '').split(/\s*\+\s*/).map(x => x.trim()).filter(Boolean); }
+function opJoin(list) { return list.join(OP_SEP); }
+
+/* "TEAM A - NARENDRA/RAJU/GOVIND/AMAN" -> label "TEAM A", members listed separately */
 function opLabel(name) {
   const i = String(name || '').indexOf(' - ');
   return i > 0 ? name.slice(0, i) : name;
@@ -25,10 +38,10 @@ function opMembers(name) {
   return i > 0 ? name.slice(i + 3).split(/[\/,]/).map(x => x.trim()).filter(Boolean) : [];
 }
 
-function cell(date, shift, res) {
-  const k = ck(date, shift, res);
-  if (!S.cells.has(k)) S.cells.set(k, { product: '', operator: '', plan: '', actual: '', rej: '', remarks: '' });
-  return S.cells.get(k);
+/** A slot is complete once it has a product, and a person too where one is needed. */
+function cellReady(c) {
+  const d = Store.dept(S.dept);
+  return !!c.product && (!d.hasOperator || !!c.operator);
 }
 
 /* ----------------------------------------------------------------- boot */
@@ -59,40 +72,42 @@ function buildTabs() {
       onclick: () => switchDept(d.code)
     }));
   });
+  const d = Store.dept(S.dept);
+  $('#mgOperators').style.display = d && d.hasOperator ? '' : 'none';
 }
 
 async function switchDept(code) {
-  if (S.dirty.size && !confirm('You have unsaved changes. Leave them?')) return;
+  if ((S.dirty.size || S.notesDirty) && !confirm('You have unsaved changes. Leave them?')) return;
   S.dept = code;
   buildTabs();
-  $('#mgOperators').style.display = Store.dept(S.dept).hasOperator ? '' : 'none';
   await loadWeek();
 }
 
 async function loadWeek() {
-  closeRepeat();
-  S.cells.clear(); S.dirty.clear(); markDirty();
+  closePicker();
+  S.cells.clear(); S.dirty.clear(); S.notesDirty = false; markDirty();
   $('#board').innerHTML = '<p class="loading">Loading plan…</p>';
+
   const days = workingDays(S.start, S.days);
-  const [plan, demand, notes] = await Promise.all([
-    api('getPlan', { dept: S.dept, from: days[0], to: days[days.length - 1] }),
-    api('getDemand', {}),
-    api('getNotes', { dept: S.dept, week: weekStart(days[0]) })
-  ]);
-  S.notes = notes.notes || '';
-  S.notesDirty = false;
-  const ta = $('#notes');
-  ta.value = S.notes;
-  $('#notesMeta').textContent = notes.updatedBy
-    ? 'last edited by ' + notes.updatedBy + ' · ' + String(notes.updatedAt).slice(0, 16) : '';
-  S.demand = demand.filter(d => d.dept === S.dept);
-  plan.cells.forEach(c => {
+  const data = await api('board', {
+    dept: S.dept, from: days[0], to: days[days.length - 1], week: weekStart(days[0])
+  });
+
+  S.demand = (data.demand || []).filter(x => x.dept === S.dept);
+  (data.plan.cells || []).forEach(c => {
     S.cells.set(ck(c.date, c.shift, c.res), {
       product: c.product, operator: c.operator,
       plan: c.plan === '' ? '' : c.plan,
       actual: c.actual, rej: c.rej, remarks: c.remarks || ''
     });
   });
+
+  const n = data.notes || {};
+  S.notes = n.notes || '';
+  $('#notes').value = S.notes;
+  $('#notesMeta').textContent = n.updatedBy
+    ? 'last edited by ' + n.updatedBy + ' · ' + String(n.updatedAt).slice(0, 16) : '';
+
   render();
 }
 
@@ -105,8 +120,11 @@ function render() {
   const shifts = d.hasShift ? ['DAY', 'NIGHT'] : ['DAY'];
   const today = todayISO();
 
+  const wrap = $('.board-wrap');
+  const keepTop = wrap ? wrap.scrollTop : 0;
+  const keepLeft = wrap ? wrap.scrollLeft : 0;
+
   const table = el('table', { class: 'board' });
-  const thead = el('thead');
   const hr = el('tr');
   hr.appendChild(el('th', { class: 'res', text: d.resourceLabel }));
   if (d.hasShift) hr.appendChild(el('th', { class: 'shift', text: 'Shift' }));
@@ -115,8 +133,7 @@ function render() {
     th.appendChild(el('small', { text: day === today ? 'Today' : day.split('-').reverse().join('.') }));
     hr.appendChild(th);
   });
-  thead.appendChild(hr);
-  table.appendChild(thead);
+  table.appendChild(el('thead', {}, hr));
 
   const tbody = el('tbody');
   resources.forEach(r => {
@@ -134,155 +151,121 @@ function render() {
         tr.appendChild(th);
       }
       if (d.hasShift) tr.appendChild(el('th', { class: 'shift', text: sh === 'DAY' ? 'Day' : 'Night' }));
-      days.forEach(day => tr.appendChild(renderCell(d, r, day, sh)));
+      days.forEach(day => {
+        const td = el('td', { class: 'cell' });
+        td.dataset.key = ck(day, sh, r.id);
+        paintCell(td);
+        tr.appendChild(td);
+      });
       tbody.appendChild(tr);
     });
   });
   table.appendChild(tbody);
 
-  const wrap = el('div', { class: 'board-wrap' });
-  wrap.appendChild(table);
+  const box = el('div', { class: 'board-wrap' });
+  box.appendChild(table);
+  box.addEventListener('scroll', closePicker, { passive: true });
   $('#board').innerHTML = '';
-  $('#board').appendChild(wrap);
+  $('#board').appendChild(box);
+  box.scrollTop = keepTop;
+  box.scrollLeft = keepLeft;
 
   validate();
   coverage();
 }
 
-function renderCell(dept, res, day, shift) {
-  const c = cell(day, shift, res.id);
-  const td = el('td', { class: 'cell' });
-  td.dataset.key = ck(day, shift, res.id);
+/** Draws one cell. Cheap — plain text plus a single number input. */
+function paintCell(td) {
+  const [day, shift, resId] = td.dataset.key.split('|');
+  const dept = Store.dept(S.dept);
+  const c = cell(day, shift, resId);
+
+  td.innerHTML = '';
+  td.className = 'cell' + (c.product ? '' : ' idle') + (S.dirty.has(td.dataset.key) ? ' changed' : '');
   const stack = el('div', { class: 'stack' });
 
   /* product */
-  const prod = el('select', { class: 'prod' });
-  prod.appendChild(el('option', { value: '', text: '— idle —' }));
-  Store.products(S.dept).forEach(p => {
-    const o = el('option', { value: p.code, text: p.code });
-    if (p.code === c.product) o.selected = true;
-    prod.appendChild(o);
-  });
-  prod.appendChild(el('option', { value: ADD_NEW, text: '+ Add new product…' }));
-  prod.addEventListener('change', async () => {
-    if (prod.value === ADD_NEW) {
-      prod.value = c.product;
-      try {
-        const code = await Store.addProduct(S.dept, res.id);
-        if (code) { c.product = code; c.plan = Store.stdQty(res.id, code) || ''; touch(td, day, shift, res.id); }
-      } catch (e) { toast(e.message, 'err'); }
-      render();
-      return;
-    }
-    const prev = c.product;
-    c.product = prod.value;
-    const prevStd = Store.stdQty(res.id, prev);
-    if (!c.product) c.plan = '';
-    else if (c.plan === '' || c.plan === prevStd) c.plan = Store.stdQty(res.id, c.product) || '';
-    touch(td, day, shift, res.id);
-    render();
-    if (cellReady(c)) askRepeat(day, shift, res.id);
-  });
-  stack.appendChild(prod);
+  stack.appendChild(el('button', {
+    class: 'pick prod' + (c.product ? '' : ' empty'),
+    text: c.product || '— idle —',
+    title: c.product || 'Choose a product',
+    onclick: e => openPicker('product', td, e.currentTarget)
+  }));
 
-  /* operator */
+  /* people */
   if (dept.hasOperator) {
-    const op = el('select', { class: 'op' });
-    op.appendChild(el('option', { value: '', text: '— not assigned —' }));
-
-    // grouped by roster section, so a 200-name list stays navigable
-    const groups = new Map();
-    Store.operators(S.dept).forEach(o => {
-      const g = o.section || 'Other';
-      if (!groups.has(g)) groups.set(g, []);
-      groups.get(g).push(o);
-    });
-    const ordered = Array.from(groups.keys()).sort((a, b) => {
-      if (a === 'Other') return 1;
-      if (b === 'Other') return -1;
-      return a.localeCompare(b);
-    });
-    const single = ordered.length <= 1;
-    ordered.forEach(g => {
-      const parent = single ? op : el('optgroup', { label: g });
-      groups.get(g).forEach(o => {
-        const opt = el('option', { value: o.name, text: opLabel(o.name), title: o.name + (o.section ? '  —  ' + o.section : '') });
-        if (o.name === c.operator) opt.selected = true;
-        parent.appendChild(opt);
-      });
-      if (!single) op.appendChild(parent);
-    });
-    op.title = c.operator || '';
-    op.appendChild(el('option', { value: ADD_NEW, text: '+ Add new ' + dept.operatorLabel.toLowerCase() + '…' }));
-    op.addEventListener('change', async () => {
-      if (op.value === ADD_NEW) {
-        op.value = c.operator;
-        try {
-          const name = await Store.addOperator(S.dept, shift);
-          if (name) { c.operator = name; touch(td, day, shift, res.id); }
-        } catch (e) { toast(e.message, 'err'); }
-        render();
-        return;
-      }
-      c.operator = op.value;
-      touch(td, day, shift, res.id);
-      render();
-      if (cellReady(c)) askRepeat(day, shift, res.id);
-    });
-    stack.appendChild(op);
-
-    const members = opMembers(c.operator);
-    if (members.length) {
-      const box = el('div', { class: 'members' });
-      members.forEach(m => box.appendChild(el('span', { text: m })));
+    const crew = opList(c.operator);
+    if (dept.multiOperator && crew.length) {
+      const box = el('div', { class: 'crew' });
+      crew.forEach(nm => box.appendChild(el('span', { class: 'chip' }, el('b', { text: opLabel(nm), title: nm }))));
+      box.addEventListener('click', e => openPicker('operator', td, e.currentTarget));
       stack.appendChild(box);
+      stack.appendChild(el('button', {
+        class: 'pick op small',
+        text: '+ add ' + dept.operatorLabel.toLowerCase(),
+        onclick: e => openPicker('operator', td, e.currentTarget)
+      }));
+    } else {
+      stack.appendChild(el('button', {
+        class: 'pick op' + (crew.length ? '' : ' empty'),
+        text: crew.length ? crew.map(opLabel).join(', ') : '— not assigned —',
+        title: c.operator || 'Assign somebody',
+        onclick: e => openPicker('operator', td, e.currentTarget)
+      }));
+      const members = opMembers(c.operator);
+      if (members.length) {
+        const mb = el('div', { class: 'members' });
+        members.forEach(m => mb.appendChild(el('span', { text: m })));
+        stack.appendChild(mb);
+      }
     }
   }
 
-  /* quantity — plan row and actual row, like the Excel sheet */
+  /* plan */
   const planRow = el('div', { class: 'line' });
   planRow.appendChild(el('b', { text: 'Plan' }));
   const qty = el('input', { class: 'qty', type: 'number', min: '0', step: '10', value: c.plan === '' ? '' : c.plan });
   qty.addEventListener('input', () => {
     c.plan = qty.value === '' ? '' : Number(qty.value);
-    touch(td, day, shift, res.id); coverage(); validate(); paintActual();
+    S.dirty.add(td.dataset.key);
+    td.classList.add('changed');
+    markDirty();
+    scheduleRecalc();
   });
   planRow.appendChild(qty);
   stack.appendChild(planRow);
 
+  /* actual */
   const actRow = el('div', { class: 'line' });
   actRow.appendChild(el('b', { text: 'Actual' }));
-  const actVal = el('span', { class: 'actval', title: 'Reported from Shift entry' });
-  actRow.appendChild(actVal);
+  const has = c.actual !== '' && c.actual !== null && c.actual !== undefined;
+  if (has) {
+    const v = Number(c.actual) - Number(c.plan || 0);
+    actRow.appendChild(el('span', {
+      class: 'actval ' + (v < 0 ? 'var-behind' : 'var-ahead'),
+      title: 'Reported from Shift entry',
+      text: fmt(c.actual) + (v ? '  ' + (v > 0 ? '+' : '') + fmt(v) : '')
+    }));
+  } else {
+    actRow.appendChild(el('span', { class: 'actval actval--none', text: '—' }));
+  }
   stack.appendChild(actRow);
 
-  function paintActual() {
-    const has = c.actual !== '' && c.actual !== null && c.actual !== undefined;
-    if (!has) {
-      actVal.textContent = '—';
-      actVal.className = 'actval actval--none';
-      return;
-    }
-    const v = Number(c.actual) - Number(c.plan || 0);
-    actVal.textContent = fmt(c.actual) + (v ? '  ' + (v > 0 ? '+' : '') + fmt(v) : '');
-    actVal.className = 'actval ' + (v < 0 ? 'var-behind' : 'var-ahead');
-  }
-  paintActual();
-
-  if (c.remarks) {
-    stack.appendChild(el('div', { class: 'reason-note', title: c.remarks, text: c.remarks }));
-  }
+  if (c.remarks) stack.appendChild(el('div', { class: 'reason-note', title: c.remarks, text: c.remarks }));
 
   td.appendChild(stack);
-  if (!c.product) td.classList.add('idle');
-  if (S.dirty.has(ck(day, shift, res.id))) td.classList.add('changed');
-  return td;
 }
 
-function touch(td, day, shift, res) {
-  S.dirty.add(ck(day, shift, res));
-  if (td) td.classList.add('changed');
-  markDirty();
+/** Repaints one cell without touching the rest of the board. */
+function repaint(key) {
+  const td = $('[data-key="' + key + '"]');
+  if (td) paintCell(td);
+}
+
+let recalcTimer = null;
+function scheduleRecalc() {
+  clearTimeout(recalcTimer);
+  recalcTimer = setTimeout(() => { coverage(); validate(); }, 180);
 }
 
 function markDirty() {
@@ -290,6 +273,286 @@ function markDirty() {
   $('#saveBtn').disabled = n === 0;
   $('#toolbar').classList.toggle('dirty', n > 0);
   $('#dirtyCount').textContent = n ? n + ' unsaved' : 'All saved';
+}
+
+function touchCell(key) {
+  S.dirty.add(key);
+  markDirty();
+  repaint(key);
+  scheduleRecalc();
+}
+
+/* ---------------------------------------------------------------- picker */
+
+let PICK = null;      // {mode, key, anchor}
+
+function closePicker() {
+  const p = $('#picker');
+  if (p) p.remove();
+  PICK = null;
+  document.removeEventListener('mousedown', outsidePicker, true);
+}
+
+function outsidePicker(e) {
+  const p = $('#picker');
+  if (p && !p.contains(e.target)) closePicker();
+}
+
+function placePicker(pop, anchor) {
+  const r = anchor.getBoundingClientRect();
+  pop.style.visibility = 'hidden';
+  document.body.appendChild(pop);
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  let left = r.left, top = r.bottom + 6;
+  if (left + w > window.innerWidth - 12) left = window.innerWidth - w - 12;
+  if (top + h > window.innerHeight - 12) top = Math.max(12, r.top - h - 6);
+  pop.style.left = Math.max(12, left) + 'px';
+  pop.style.top = Math.max(12, top) + 'px';
+  pop.style.visibility = '';
+}
+
+function pickerShell(title, sub) {
+  const pop = el('div', { id: 'picker', class: 'picker' });
+  pop.appendChild(el('div', { class: 'pick-head' }, [
+    el('b', { text: title }),
+    el('span', { text: sub })
+  ]));
+  return pop;
+}
+
+/**
+ * One picker, shared by every cell. Type to filter, Enter takes the first
+ * match, Escape closes. Nothing is built until it is opened, which is what
+ * keeps the board fast.
+ */
+function openPicker(mode, td, anchor) {
+  closePicker();
+  const key = td.dataset.key;
+  const [day, shift, resId] = key.split('|');
+  const dept = Store.dept(S.dept);
+  const res = Store.resources(S.dept).find(r => r.id === resId);
+  const c = cell(day, shift, resId);
+
+  const pop = pickerShell(
+    res.name,
+    shortDate(day) + (dept.hasShift ? ' · ' + shift.toLowerCase() : '')
+  );
+  PICK = { mode, key, anchor };
+
+  const search = el('input', {
+    class: 'pick-search', type: 'text',
+    placeholder: mode === 'product' ? 'Type a product…' : 'Type a name…'
+  });
+  pop.appendChild(search);
+
+  const list = el('div', { class: 'pick-list' });
+  const multi = mode === 'operator' && dept.multiOperator;
+  let chosen = mode === 'operator' ? opList(c.operator) : [];
+
+  const rows = [];
+  const addRow = (value, label, note, selected) => {
+    const row = el('button', {
+      class: 'pick-row' + (selected ? ' on' : ''),
+      onclick: () => choose(value)
+    });
+    row.appendChild(el('span', { class: 'pl', text: label }));
+    if (note) row.appendChild(el('span', { class: 'pn', text: note }));
+    row.dataset.find = (label + ' ' + (note || '')).toLowerCase();
+    list.appendChild(row);
+    rows.push(row);
+    return row;
+  };
+
+  if (mode === 'product') {
+    addRow('', '— idle —', 'nothing on this machine', !c.product);
+    Store.products(S.dept).forEach(p => {
+      const std = Store.stdQty(resId, p.code);
+      addRow(p.code, p.code, std ? fmt(std) + ' / shift' : '', p.code === c.product);
+    });
+  } else {
+    let lastSection = null;
+    Store.operators(S.dept).forEach(o => {
+      const sec = o.section || 'Other';
+      if (sec !== lastSection) {
+        list.appendChild(el('div', { class: 'pick-group', text: sec }));
+        lastSection = sec;
+      }
+      addRow(o.name, opLabel(o.name), sec, chosen.indexOf(o.name) >= 0);
+    });
+    if (!multi) addRow('', '— not assigned —', '', !c.operator);
+  }
+  addRow(ADD_NEW, mode === 'product' ? '+ Add new product…' : '+ Add new person…', '', false);
+  pop.appendChild(list);
+
+  if (multi) {
+    pop.appendChild(el('div', { class: 'pick-foot' }, [
+      el('span', { class: 'empty', id: 'pickCount', text: chosen.length + ' assigned' }),
+      el('button', { class: 'btn btn--primary', text: 'Done', onclick: () => finish() })
+    ]));
+  }
+
+  async function choose(value) {
+    if (value === ADD_NEW) {
+      try {
+        const added = mode === 'product'
+          ? await Store.addProduct(S.dept, resId)
+          : await Store.addOperator(S.dept, shift);
+        if (!added) return;
+        if (mode === 'product') { c.product = added; c.plan = Store.stdQty(resId, added) || ''; }
+        else if (multi) { chosen = chosen.concat(added); }
+        else { c.operator = added; }
+        touchCell(key);
+        closePicker();
+        if (!multi && cellReady(c)) askRepeat(key);
+      } catch (e) { toast(e.message, 'err'); }
+      return;
+    }
+
+    if (mode === 'product') {
+      const prevStd = Store.stdQty(resId, c.product);
+      c.product = value;
+      if (!value) c.plan = '';
+      else if (c.plan === '' || c.plan === prevStd) c.plan = Store.stdQty(resId, value) || '';
+      touchCell(key);
+      if (cellReady(c)) showRepeat(pop, key);
+      else closePicker();
+      return;
+    }
+
+    if (multi) {
+      chosen = chosen.indexOf(value) >= 0 ? chosen.filter(x => x !== value) : chosen.concat(value);
+      c.operator = opJoin(chosen);
+      touchCell(key);
+      rows.forEach(r => { /* refresh ticks */ });
+      Array.from(list.querySelectorAll('.pick-row')).forEach(r => {
+        const lbl = r.querySelector('.pl').textContent;
+        const hit = chosen.some(n => opLabel(n) === lbl);
+        r.classList.toggle('on', hit);
+      });
+      $('#pickCount').textContent = chosen.length + ' assigned';
+      return;
+    }
+
+    c.operator = value;
+    touchCell(key);
+    if (cellReady(c)) showRepeat(pop, key);
+    else closePicker();
+  }
+
+  function finish() {
+    const cc = cell(day, shift, resId);
+    if (cellReady(cc)) showRepeat(pop, key);
+    else closePicker();
+  }
+
+  search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    let shown = 0;
+    rows.forEach(r => {
+      const hit = !q || r.dataset.find.indexOf(q) >= 0;
+      r.style.display = hit ? '' : 'none';
+      if (hit) shown++;
+    });
+    Array.from(list.querySelectorAll('.pick-group')).forEach(g => {
+      g.style.display = q ? 'none' : '';
+    });
+    list.scrollTop = 0;
+  });
+
+  search.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closePicker(); return; }
+    if (e.key === 'Enter') {
+      const first = rows.find(r => r.style.display !== 'none');
+      if (first) first.click();
+    }
+  });
+
+  placePicker(pop, anchor);
+  setTimeout(() => {
+    search.focus();
+    const on = list.querySelector('.pick-row.on');
+    if (on) on.scrollIntoView({ block: 'center' });
+    document.addEventListener('mousedown', outsidePicker, true);
+  }, 0);
+}
+
+/* ----------------------------------------------- carry forward, in place */
+
+/** Turns the open picker into "how many days?" so it can never appear off screen. */
+function showRepeat(pop, key) {
+  const [day, shift, resId] = key.split('|');
+  const days = workingDays(S.start, S.days);
+  const i = days.indexOf(day);
+  const ahead = days.length - i - 1;
+  const c = cell(day, shift, resId);
+
+  if (sessionStorage.getItem('pps_norepeat') === '1' || ahead < 1) { closePicker(); return; }
+
+  pop.innerHTML = '';
+  const res = Store.resources(S.dept).find(r => r.id === resId);
+  pop.appendChild(el('div', { class: 'pick-head' }, [
+    el('b', { text: c.product }),
+    el('span', {
+      text: (c.operator ? opList(c.operator).map(opLabel).join(', ') + ' · ' : '') + res.name
+    })
+  ]));
+  pop.appendChild(el('p', { class: 'pick-q', text: 'How many days should this run?' }));
+
+  const opts = el('div', { class: 'pick-opts' });
+  const max = ahead + 1;
+  const choices = [];
+  for (let n = 2; n <= Math.min(max, 5); n++) choices.push(n);
+  if (max > 5) choices.push(max);
+  choices.forEach(n => {
+    opts.appendChild(el('button', {
+      class: 'btn' + (n === max ? ' btn--primary' : ''),
+      text: n === max ? 'All ' + n + ' days' : n + ' days',
+      onclick: () => repeatForward(key, n)
+    }));
+  });
+  pop.appendChild(opts);
+
+  pop.appendChild(el('div', { class: 'pick-foot' }, [
+    el('button', { class: 'linkish', text: 'Just this day', onclick: closePicker }),
+    el('button', {
+      class: 'linkish', text: "Don't ask again",
+      onclick: () => { sessionStorage.setItem('pps_norepeat', '1'); closePicker(); }
+    })
+  ]));
+
+  if (PICK && PICK.anchor && document.body.contains(PICK.anchor)) placePicker(pop, PICK.anchor);
+}
+
+/** Opens the carry-forward question on its own, when no picker is showing. */
+function askRepeat(key) {
+  const td = $('[data-key="' + key + '"]');
+  if (!td) return;
+  const pop = pickerShell('', '');
+  PICK = { mode: 'repeat', key, anchor: td };
+  placePicker(pop, td);
+  showRepeat(pop, key);
+  setTimeout(() => document.addEventListener('mousedown', outsidePicker, true), 0);
+}
+
+function repeatForward(key, n) {
+  const [day, shift, resId] = key.split('|');
+  const days = workingDays(S.start, S.days);
+  const i = days.indexOf(day);
+  const src = cell(day, shift, resId);
+  for (let k = 1; k < n; k++) {
+    const target = days[i + k];
+    if (!target) break;
+    const t = cell(target, shift, resId);
+    t.product = src.product;
+    t.operator = src.operator;
+    t.plan = src.plan;
+    S.dirty.add(ck(target, shift, resId));
+    repaint(ck(target, shift, resId));
+  }
+  markDirty();
+  closePicker();
+  scheduleRecalc();
+  toast('Carried forward for ' + n + ' days', 'ok');
 }
 
 /* ------------------------------------------------------------ row tools */
@@ -303,25 +566,25 @@ function fillRow(resId) {
       const t = cell(day, sh, resId);
       t.product = src.product; t.operator = src.operator; t.plan = src.plan;
       S.dirty.add(ck(day, sh, resId));
+      repaint(ck(day, sh, resId));
     });
   });
   markDirty();
-  render();
+  scheduleRecalc();
 }
 
 async function copyLastWeek() {
   if (!confirm('Copy the previous ' + S.days + ' working days onto this view? Existing entries will be overwritten.')) return;
   const prev = shiftWorkingDays(S.start, -S.days);
   await api('copyRange', {
-    dept: S.dept,
-    fromStart: prev, fromEnd: workingDays(prev, S.days)[S.days - 1],
-    toStart: S.start
+    dept: S.dept, fromStart: prev,
+    fromEnd: workingDays(prev, S.days)[S.days - 1], toStart: S.start
   });
   toast('Previous period copied across', 'ok');
   await loadWeek();
 }
 
-/* ------------------------------------------------------------ validation */
+/* ----------------------------------------------------------- validation */
 
 function validate() {
   const days = workingDays(S.start, S.days);
@@ -335,22 +598,24 @@ function validate() {
       const seen = new Map();
       Store.resources(S.dept).forEach(r => {
         const c = cell(day, sh, r.id);
-        if (dept.hasOperator && c.operator) {
-          if (seen.has(c.operator)) {
-            issues.push({
-              kind: 'err',
-              text: c.operator + ' is on ' + seen.get(c.operator) + ' and ' + r.name + ' — ' + shortDate(day) + ' ' + sh.toLowerCase()
-            });
-            [seen.get(c.operator), r.name].forEach(n => {
-              const other = Store.resources(S.dept).find(x => x.name === n);
-              if (!other) return;
-              const td = $('[data-key="' + ck(day, sh, other.id) + '"]');
-              if (td) td.classList.add('clash');
-            });
-          } else seen.set(c.operator, r.name);
+        if (dept.hasOperator) {
+          opList(c.operator).forEach(person => {
+            if (seen.has(person)) {
+              issues.push({
+                kind: 'err',
+                text: person + ' is on ' + seen.get(person) + ' and ' + r.name + ' — ' + shortDate(day) + ' ' + sh.toLowerCase()
+              });
+              [seen.get(person), r.name].forEach(n => {
+                const other = Store.resources(S.dept).find(x => x.name === n);
+                if (!other) return;
+                const td = $('[data-key="' + ck(day, sh, other.id) + '"]');
+                if (td) td.classList.add('clash');
+              });
+            } else seen.set(person, r.name);
+          });
         }
         if (c.product && dept.hasOperator && !c.operator) {
-          issues.push({ kind: 'warn', text: r.name + ' has no ' + dept.operatorLabel.toLowerCase() + ' — ' + shortDate(day) + ' ' + sh.toLowerCase() });
+          issues.push({ kind: 'warn', text: r.name + ' has nobody assigned — ' + shortDate(day) + ' ' + sh.toLowerCase() });
         }
         if (c.product && c.plan !== '') {
           const std = Store.stdQty(r.id, c.product);
@@ -420,20 +685,17 @@ function coverage() {
   $('#coverage').innerHTML = '';
   $('#coverage').appendChild(t);
 
-  const pct = Math.round(loaded / (slots || 1) * 100);
   $('#kpiPlan').textContent = fmt(planTotal);
   $('#kpiSlots').textContent = loaded + ' / ' + slots;
-  $('#kpiLoad').textContent = pct + '%';
+  $('#kpiLoad').textContent = Math.round(loaded / (slots || 1) * 100) + '%';
   $('#kpiIdle').textContent = (slots - loaded);
   $('#kpiRange').textContent = shortDate(days[0]) + ' – ' + shortDate(days[days.length - 1]);
-  // name any holiday that falls inside the period, so a short week is obvious
+
   const span = [];
   for (let d = days[0]; d <= days[days.length - 1]; d = addDays(d, 1)) span.push(d);
   const skipped = span.filter(d => holidayName(d))
     .map(d => holidayName(d) + ' ' + d.slice(8) + '/' + d.slice(5, 7));
-  $('#kpiSkip').textContent = skipped.length
-    ? 'Holiday: ' + skipped.join(', ')
-    : 'Sundays and holidays excluded';
+  $('#kpiSkip').textContent = skipped.length ? 'Holiday: ' + skipped.join(', ') : 'Sundays and holidays excluded';
 
   $('#phDept').textContent = Store.dept(S.dept).name;
   $('#phPeriod').textContent = shortDate(days[0]) + ' – ' + shortDate(days[days.length - 1]) +
@@ -447,146 +709,57 @@ async function save() {
   const btn = $('#saveBtn');
   btn.disabled = true; btn.textContent = 'Saving…';
   const days = workingDays(S.start, S.days);
+
   const cells = Array.from(S.dirty).map(k => {
     const [date, shift, res] = k.split('|');
     const c = S.cells.get(k);
-    return {
-      dept: S.dept, date, shift, res,
-      product: c.product, operator: c.operator, plan: c.plan
-    };
+    return { dept: S.dept, date, shift, res, product: c.product, operator: c.operator, plan: c.plan };
   });
+
   try {
     let saved = 0;
-    if (cells.length) {
-      const out = await api('savePlan', { cells, mode: 'plan' });
-      saved = out.saved;
-    }
+    if (cells.length) saved = (await api('savePlan', { cells, mode: 'plan' })).saved;
     if (S.notesDirty) {
       await api('saveNotes', { dept: S.dept, week: weekStart(days[0]), notes: S.notes });
       S.notesDirty = false;
       $('#notesMeta').textContent = 'last edited by ' + Auth.user + ' · just now';
     }
+    const keys = Array.from(S.dirty);
     S.dirty.clear();
+    keys.forEach(repaint);
     toast(saved ? 'Saved — ' + saved + ' slots' : 'Notes saved', 'ok');
-    render();
   } catch (e) {
     toast(e.message, 'err');
   } finally {
-    btn.textContent = 'Save plan'; markDirty();
+    btn.textContent = 'Save plan';
+    markDirty();
   }
 }
 
-/* ------------------------------------------------------ repeat forward */
+/* ------------------------------------------------------------ focus mode */
 
-/** A cell is ready once it has a product, and a person too where the department needs one. */
-function cellReady(c) {
-  const d = Store.dept(S.dept);
-  return !!c.product && (!d.hasOperator || !!c.operator);
-}
-
-function closeRepeat() {
-  const p = $('#repeatPop');
-  if (p) p.remove();
-  document.removeEventListener('mousedown', outsideRepeat, true);
-}
-function outsideRepeat(e) {
-  const p = $('#repeatPop');
-  if (p && !p.contains(e.target)) closeRepeat();
-}
-
-/** Copies this cell's product, person and quantity forward n days on the same row. */
-function repeatForward(day, shift, resId, n) {
-  const days = workingDays(S.start, S.days);
-  const i = days.indexOf(day);
-  const src = cell(day, shift, resId);
-  for (let k = 1; k < n; k++) {
-    const target = days[i + k];
-    if (!target) break;
-    const t = cell(target, shift, resId);
-    t.product = src.product;
-    t.operator = src.operator;
-    t.plan = src.plan;
-    S.dirty.add(ck(target, shift, resId));
-  }
-  markDirty();
-  closeRepeat();
-  render();
-  toast('Carried forward for ' + n + ' days', 'ok');
-}
-
-/** Asks how long to keep the same product and person running on this machine. */
-function askRepeat(day, shift, resId) {
-  if (sessionStorage.getItem('pps_norepeat') === '1') return;
-  const days = workingDays(S.start, S.days);
-  const i = days.indexOf(day);
-  const ahead = days.length - i - 1;
-  if (i < 0 || ahead < 1) return;
-
-  const c = cell(day, shift, resId);
-  if (!cellReady(c)) return;
-
-  const td = $('[data-key="' + ck(day, shift, resId) + '"]');
-  if (!td) return;
-
-  closeRepeat();
-  const pop = el('div', { id: 'repeatPop', class: 'popover' });
-
-  const res = Store.resources(S.dept).find(r => r.id === resId);
-  pop.appendChild(el('div', { class: 'pop-head' }, [
-    el('b', { text: c.product }),
-    el('span', {
-      text: (c.operator ? opLabel(c.operator) + ' · ' : '') + res.name +
-            (Store.dept(S.dept).hasShift ? ' · ' + shift.toLowerCase() : '')
-    })
-  ]));
-  pop.appendChild(el('p', { class: 'pop-q', text: 'How many days should this run?' }));
-
-  const opts = el('div', { class: 'pop-opts' });
-  const max = ahead + 1;
-  const choices = [];
-  for (let n = 2; n <= Math.min(max, 5); n++) choices.push(n);
-  if (max > 5) choices.push(max);
-
-  choices.forEach(n => {
-    opts.appendChild(el('button', {
-      class: 'btn' + (n === max ? ' btn--primary' : ''),
-      text: n === max ? 'All ' + n + ' days' : n + ' days',
-      title: n === max ? 'To the end of the period' : '',
-      onclick: () => repeatForward(day, shift, resId, n)
+function toggleFocus() {
+  const on = document.body.classList.toggle('focus-mode');
+  if (on && !$('#focusHint')) {
+    document.body.appendChild(el('div', {
+      id: 'focusHint', text: 'Full screen board — Ctrl+Shift+F to bring the menus back',
+      onclick: toggleFocus
     }));
-  });
-  pop.appendChild(opts);
-
-  pop.appendChild(el('div', { class: 'pop-foot' }, [
-    el('button', { class: 'linkish', text: 'Just this day', onclick: closeRepeat }),
-    el('button', {
-      class: 'linkish', text: "Don't ask again",
-      onclick: () => { sessionStorage.setItem('pps_norepeat', '1'); closeRepeat(); }
-    })
-  ]));
-
-  document.body.appendChild(pop);
-  const r = td.getBoundingClientRect();
-  const w = pop.offsetWidth, h = pop.offsetHeight;
-  let left = r.left, top = r.bottom + 6;
-  if (left + w > window.innerWidth - 12) left = window.innerWidth - w - 12;
-  if (top + h > window.innerHeight - 12) top = Math.max(12, r.top - h - 6);
-  pop.style.left = Math.max(12, left) + 'px';
-  pop.style.top = top + 'px';
-
-  setTimeout(() => document.addEventListener('mousedown', outsideRepeat, true), 0);
+  } else if (!on) {
+    const h = $('#focusHint');
+    if (h) h.remove();
+  }
+  closePicker();
 }
 
 /* ---------------------------------------------------------- roster sync */
 
-/** Re-reads the Gents/Ladies roster workbook and reloads the board. */
 async function syncRoster() {
   const adminPin = Auth.needAdmin();
   if (!adminPin) return;
   const btn = $('#syncBtn');
   const label = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Syncing…';
+  btn.disabled = true; btn.textContent = 'Syncing…';
   try {
     const out = await api('syncRoster', { adminPin });
     await Store.bootstrap(true);
@@ -595,8 +768,7 @@ async function syncRoster() {
   } catch (e) {
     toast(e.message, 'err');
   } finally {
-    btn.disabled = false;
-    btn.textContent = label;
+    btn.disabled = false; btn.textContent = label;
   }
 }
 
@@ -624,16 +796,13 @@ function openManager(kind) {
   ]));
 
   const body = el('div', { class: 'modal-body' });
+  const filter = el('input', {
+    class: 'pick-search', type: 'text', placeholder: 'Type to filter…', style: 'margin:8px 0'
+  });
+  body.appendChild(filter);
   if (!items.length) body.appendChild(el('p', { class: 'empty', text: 'Nothing here yet.' }));
 
-  const head = el('div', { class: 'mrow mrow--head' }, [
-    el('span', { text: 'Name' }),
-    el('span', { text: isProduct ? 'Std / shift' : 'Shift' }),
-    el('span', { text: 'Status' }),
-    el('span', { text: '' })
-  ]);
-  if (items.length) body.appendChild(head);
-
+  const rowEls = [];
   items.forEach(it => {
     const oldName = isProduct ? it.code : it.name;
     const name = el('input', {
@@ -665,14 +834,12 @@ function openManager(kind) {
       save.disabled = true; save.textContent = '…';
       try {
         const out = await api('updateMaster', {
-          kind, dept: S.dept, oldName, newName, adminPin,
-          status: st.value,
+          kind, dept: S.dept, oldName, newName, adminPin, status: st.value,
           std: isProduct ? Number(extra.value) || 0 : undefined,
           shift: isProduct ? undefined : extra.value
         });
         await Store.bootstrap(true);
-        toast(oldName === newName
-          ? 'Saved'
+        toast(oldName === newName ? 'Saved'
           : 'Renamed to ' + newName + (out.cascaded ? ' — ' + out.cascaded + ' existing rows updated' : ''), 'ok');
         closeModal();
         await loadWeek();
@@ -682,7 +849,15 @@ function openManager(kind) {
       }
     });
 
-    body.appendChild(el('div', { class: 'mrow' }, [name, extra, st, save]));
+    const row = el('div', { class: 'mrow' }, [name, extra, st, save]);
+    row.dataset.find = (oldName + ' ' + (it.section || '')).toLowerCase();
+    rowEls.push(row);
+    body.appendChild(row);
+  });
+
+  filter.addEventListener('input', () => {
+    const q = filter.value.trim().toLowerCase();
+    rowEls.forEach(r => { r.style.display = !q || r.dataset.find.indexOf(q) >= 0 ? '' : 'none'; });
   });
 
   panel.appendChild(body);
@@ -692,9 +867,7 @@ function openManager(kind) {
       class: 'btn', text: '+ Add new',
       onclick: async () => {
         try {
-          const added = isProduct
-            ? await Store.addProduct(S.dept, null)
-            : await Store.addOperator(S.dept, '');
+          const added = isProduct ? await Store.addProduct(S.dept, null) : await Store.addOperator(S.dept, '');
           if (added) { closeModal(); await loadWeek(); }
         } catch (e) { toast(e.message, 'err'); }
       }
@@ -703,21 +876,18 @@ function openManager(kind) {
 
   box.appendChild(panel);
   box.addEventListener('click', e => { if (e.target === box) closeModal(); });
+  setTimeout(() => filter.focus(), 0);
 }
 
 /* --------------------------------------------------------- blank format */
 
-/** Builds an empty grid for the current department and period, then prints it. */
 function printBlank() {
   const d = Store.dept(S.dept);
   const days = workingDays(S.start, S.days);
   const shifts = d.hasShift ? ['DAY', 'NIGHT'] : ['DAY'];
-  const lines = d.hasOperator
-    ? ['Product', d.operatorLabel, 'Plan', 'Actual']
-    : ['Product', 'Plan', 'Actual'];
+  const lines = d.hasOperator ? ['Product', d.operatorLabel, 'Plan', 'Actual'] : ['Product', 'Plan', 'Actual'];
 
   const wrap = el('div', { class: 'blank-sheet' });
-
   const head = el('div', { class: 'print-head' });
   const left = el('div', { class: 'ph-left' });
   left.appendChild(el('img', { src: 'logo.png', alt: 'TVL' }));
@@ -725,12 +895,14 @@ function printBlank() {
   brand.appendChild(el('b', { text: 'Trans Valves India Private Limited' }));
   brand.appendChild(el('span', { text: 'When Safety Matters' }));
   left.appendChild(brand);
+  head.appendChild(left);
+  head.appendChild(el('div', { class: 'ph-mid' }, el('b', { text: 'PRODUCTION PLANNING' })));
   const right = el('div', { class: 'ph-right' });
   right.appendChild(el('b', { text: d.name }));
   right.appendChild(el('span', {
     text: days[0].split('-').reverse().join('.') + ' to ' + days[days.length - 1].split('-').reverse().join('.')
   }));
-  head.appendChild(left); head.appendChild(right);
+  head.appendChild(right);
   wrap.appendChild(head);
 
   const table = el('table', { class: 'board blank' });
@@ -810,16 +982,25 @@ window.addEventListener('DOMContentLoaded', () => {
   $('#saveBtn').onclick = () => save();
   $('#printBtn').onclick = () => window.print();
   $('#blankBtn').onclick = () => printBlank();
+  $('#mgProducts').onclick = () => openManager('product');
+  $('#mgOperators').onclick = () => openManager('operator');
+  $('#syncBtn').onclick = () => syncRoster();
+  $('#notes').addEventListener('input', e => { S.notes = e.target.value; S.notesDirty = true; markDirty(); });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeModal(); closePicker(); }
+    if (e.ctrlKey && e.shiftKey && (e.key === 'F' || e.key === 'f')) { e.preventDefault(); toggleFocus(); }
+  });
+
   window.addEventListener('beforeprint', () => {
     const ta = $('#notes');
     if (ta) { ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 6) + 'px'; }
   });
   window.addEventListener('afterprint', () => { const ta = $('#notes'); if (ta) ta.style.height = ''; });
-  $('#notes').addEventListener('input', e => { S.notes = e.target.value; S.notesDirty = true; markDirty(); });
-  $('#mgProducts').onclick = () => openManager('product');
-  $('#mgOperators').onclick = () => openManager('operator');
-  $('#syncBtn').onclick = () => syncRoster();
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeRepeat(); } });
-  window.addEventListener('beforeunload', e => { if (S.dirty.size || S.notesDirty) { e.preventDefault(); e.returnValue = ''; } });
+  window.addEventListener('resize', closePicker);
+  window.addEventListener('beforeunload', e => {
+    if (S.dirty.size || S.notesDirty) { e.preventDefault(); e.returnValue = ''; }
+  });
+
   start().catch(e => toast(e.message, 'err'));
 });
