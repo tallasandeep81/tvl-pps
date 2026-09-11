@@ -426,6 +426,15 @@ function coverage() {
   $('#kpiLoad').textContent = pct + '%';
   $('#kpiIdle').textContent = (slots - loaded);
   $('#kpiRange').textContent = shortDate(days[0]) + ' – ' + shortDate(days[days.length - 1]);
+  // name any holiday that falls inside the period, so a short week is obvious
+  const span = [];
+  for (let d = days[0]; d <= days[days.length - 1]; d = addDays(d, 1)) span.push(d);
+  const skipped = span.filter(d => holidayName(d))
+    .map(d => holidayName(d) + ' ' + d.slice(8) + '/' + d.slice(5, 7));
+  $('#kpiSkip').textContent = skipped.length
+    ? 'Holiday: ' + skipped.join(', ')
+    : 'Sundays and holidays excluded';
+
   $('#phDept').textContent = Store.dept(S.dept).name;
   $('#phPeriod').textContent = shortDate(days[0]) + ' – ' + shortDate(days[days.length - 1]) +
     '  ·  ' + days[0].split('-').reverse().join('.') + ' to ' + days[days.length - 1].split('-').reverse().join('.');
