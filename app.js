@@ -69,10 +69,20 @@ function parseISO(s) { return new Date(s + 'T00:00:00'); }
 function addDays(s, n) { const d = parseISO(s); d.setDate(d.getDate() + n); return iso(d); }
 function isSunday(s) { return parseISO(s).getDay() === 0; }
 
-/** Next working day on or after the given date (Sunday is a holiday). */
-function nextWorkingDay(s) { return isSunday(s) ? addDays(s, 1) : s; }
+/** Name of the company holiday on this date, or '' if it is a working day. */
+function holidayName(s) { return (CFG.HOLIDAYS && CFG.HOLIDAYS[s]) || ''; }
 
-/** n working days starting at startISO, Sundays skipped. */
+/** Sunday, or a date on the company holiday list. */
+function isNonWorkingDay(s) { return isSunday(s) || !!holidayName(s); }
+
+/** Next working day on or after the given date. */
+function nextWorkingDay(s) {
+  let d = s, guard = 0;
+  while (isNonWorkingDay(d) && guard++ < 40) d = addDays(d, 1);
+  return d;
+}
+
+/** n working days starting at startISO, Sundays and holidays skipped. */
 function workingDays(startISO, n) {
   const out = [];
   let d = nextWorkingDay(startISO);
@@ -87,7 +97,8 @@ function workingDays(startISO, n) {
 function shiftWorkingDays(startISO, n) {
   let d = startISO, step = n > 0 ? 1 : -1;
   for (let i = 0; i < Math.abs(n); i++) {
-    do { d = addDays(d, step); } while (isSunday(d));
+    let guard = 0;
+    do { d = addDays(d, step); } while (isNonWorkingDay(d) && guard++ < 40);
   }
   return d;
 }
