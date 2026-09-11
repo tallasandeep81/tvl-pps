@@ -522,3 +522,26 @@ td.cell .reason-note {
 .linkish:hover { color: var(--navy); }
 
 @media print { .popover { display: none !important; } }
+
+/* ------------------------------------------------- crew (multi-operator) */
+
+td.cell .crew { display: flex; flex-wrap: wrap; gap: 3px; padding: 0 4px; }
+td.cell .crew .chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: var(--blue-pale); border: 1px solid #cfe0f6; border-radius: 999px;
+  padding: 1px 4px 1px 8px; font-size: 11px; color: var(--navy); max-width: 100%;
+}
+td.cell .crew .chip b {
+  font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+td.cell .crew .chip .x {
+  border: none; background: none; cursor: pointer; padding: 0 2px;
+  font-size: 13px; line-height: 1; color: var(--ink-3);
+}
+td.cell .crew .chip .x:hover { color: var(--behind); }
+
+@media print {
+  td.cell .crew .chip { background: transparent; border: none; padding: 0 6px 0 0; font-size: 8px; }
+  td.cell .crew .chip .x { display: none; }
+  td.cell .crew + select.op { display: none; }   /* picker hidden once a crew is listed */
+}
