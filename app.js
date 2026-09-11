@@ -150,11 +150,24 @@ function fmt(n) {
 
 /* --------------------------------------------------------------- cache */
 
+const BOOT_TTL = 15 * 60 * 1000;      // master data is re-read every 15 minutes
+
 const Store = {
   boot: null,
   async bootstrap(force) {
     if (this.boot && !force) return this.boot;
+    if (!force) {
+      try {
+        const raw = sessionStorage.getItem('pps_boot');
+        if (raw) {
+          const c = JSON.parse(raw);
+          if (Date.now() - c.at < BOOT_TTL) { this.boot = c.data; return this.boot; }
+        }
+      } catch (e) { /* cache unreadable — fetch it */ }
+    }
     this.boot = await api('bootstrap');
+    try { sessionStorage.setItem('pps_boot', JSON.stringify({ at: Date.now(), data: this.boot })); }
+    catch (e) { /* over quota — run without the cache */ }
     return this.boot;
   },
   dept(code) { return this.boot.depts.find(d => d.code === code); },
