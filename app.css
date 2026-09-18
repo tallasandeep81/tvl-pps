@@ -606,3 +606,15 @@ body.focus-mode .board-wrap { max-height: calc(100vh - 90px); }
 #focusHint:hover { opacity: 1; }
 
 @media print { .picker, #focusHint { display: none !important; } }
+
+/* division tabs inside the operator picker */
+.picker .pick-divs {
+  display: flex; gap: 4px; padding: 7px 10px;
+  border-bottom: 1px solid var(--rule); background: #fafcfe;
+}
+.picker .divtab {
+  flex: 1; border: 1px solid var(--rule-strong); background: #fff; color: var(--navy);
+  font: inherit; font-size: 12px; padding: 4px 8px; border-radius: 999px; cursor: pointer;
+}
+.picker .divtab:hover { background: var(--blue-pale); }
+.picker .divtab.on { background: var(--navy); color: #fff; border-color: var(--navy); font-weight: 600; }
