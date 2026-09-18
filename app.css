@@ -618,3 +618,17 @@ body.focus-mode .board-wrap { max-height: calc(100vh - 90px); }
 }
 .picker .divtab:hover { background: var(--blue-pale); }
 .picker .divtab.on { background: var(--navy); color: #fff; border-color: var(--navy); font-weight: 600; }
+
+/* a thin progress line while the board fetches, instead of blanking the grid */
+.toolbar.busy { position: sticky; }
+.toolbar.busy::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--blue), transparent);
+  background-size: 40% 100%; background-repeat: no-repeat;
+  animation: pps-load 1s linear infinite;
+}
+@keyframes pps-load {
+  from { background-position: -40% 0; }
+  to   { background-position: 140% 0; }
+}
+@media (prefers-reduced-motion: reduce) { .toolbar.busy::after { animation: none; } }
