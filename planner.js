@@ -370,19 +370,57 @@ function openPicker(mode, td, anchor) {
       addRow(p.code, p.code, std ? fmt(std) + ' / shift' : '', p.code === c.product);
     });
   } else {
-    let lastSection = null;
-    Store.operators(S.dept).forEach(o => {
-      const sec = o.section || 'Other';
-      if (sec !== lastSection) {
-        list.appendChild(el('div', { class: 'pick-group', text: sec }));
-        lastSection = sec;
-      }
-      addRow(o.name, opLabel(o.name), sec, chosen.indexOf(o.name) >= 0);
-    });
-    if (!multi) addRow('', '— not assigned —', '', !c.operator);
+    // Gents / Ladies / All, the same three the attendance dashboard offers
+    const divisionOf = sec => {
+      const i = String(sec || '').lastIndexOf('\u00b7');
+      return i > 0 ? sec.slice(i + 1).trim() : '';
+    };
+    const people = Store.operators(S.dept);
+    const divisions = Array.from(new Set(people.map(o => divisionOf(o.section)).filter(Boolean))).sort();
+
+    let division = sessionStorage.getItem('pps_division') || '';
+    const paint = () => {
+      let lastSection = null;
+      list.innerHTML = '';
+      rows.length = 0;
+      people.forEach(o => {
+        if (division && divisionOf(o.section) !== division) return;
+        const sec = o.section || 'Other';
+        if (sec !== lastSection) {
+          list.appendChild(el('div', { class: 'pick-group', text: sec }));
+          lastSection = sec;
+        }
+        addRow(o.name, opLabel(o.name), sec, chosen.indexOf(o.name) >= 0);
+      });
+      if (!multi) addRow('', '— not assigned —', '', !c.operator);
+      addRow(ADD_NEW, '+ Add new person…', '', false);
+      search.dispatchEvent(new Event('input'));
+    };
+
+    if (divisions.length > 1) {
+      const tabs = el('div', { class: 'pick-divs' });
+      [['', 'All']].concat(divisions.map(d => [d, d])).forEach(([v, label]) => {
+        tabs.appendChild(el('button', {
+          class: 'divtab' + (v === division ? ' on' : ''),
+          text: label,
+          onclick: e => {
+            division = v;
+            sessionStorage.setItem('pps_division', v);
+            Array.from(tabs.children).forEach(b => b.classList.remove('on'));
+            e.currentTarget.classList.add('on');
+            paint();
+          }
+        }));
+      });
+      pop.appendChild(tabs);
+    }
+    pop.appendChild(list);
+    paint();
   }
-  addRow(ADD_NEW, mode === 'product' ? '+ Add new product…' : '+ Add new person…', '', false);
-  pop.appendChild(list);
+  if (mode === 'product') {
+    addRow(ADD_NEW, '+ Add new product…', '', false);
+    pop.appendChild(list);
+  }
 
   if (multi) {
     pop.appendChild(el('div', { class: 'pick-foot' }, [
