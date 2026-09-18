@@ -59,6 +59,7 @@ async function start() {
   buildTabs();
   $('#weekDate').value = S.start;
   $('#dayCount').value = String(S.days);
+  renderSkeleton();          // machines appear at once; quantities follow
   await loadWeek();
 }
 
@@ -86,7 +87,8 @@ async function switchDept(code) {
 async function loadWeek() {
   closePicker();
   S.cells.clear(); S.dirty.clear(); S.notesDirty = false; markDirty();
-  $('#board').innerHTML = '<p class="loading">Loading plan…</p>';
+  if (!$('.board-wrap')) $('#board').innerHTML = '<p class="loading">Loading plan…</p>';
+  $('#toolbar').classList.add('busy');
 
   const days = workingDays(S.start, S.days);
   const data = await api('board', {
@@ -108,10 +110,17 @@ async function loadWeek() {
   $('#notesMeta').textContent = n.updatedBy
     ? 'last edited by ' + n.updatedBy + ' · ' + String(n.updatedAt).slice(0, 16) : '';
 
+  $('#toolbar').classList.remove('busy');
   render();
 }
 
 /* --------------------------------------------------------------- render */
+
+/** Draws the grid from master data alone, before the plan arrives. */
+function renderSkeleton() {
+  try { render(); } catch (e) { /* nothing cached yet — the real render follows */ }
+}
+
 
 function render() {
   const d = Store.dept(S.dept);
