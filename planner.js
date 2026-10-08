@@ -381,7 +381,7 @@ function openPicker(mode, td, anchor) {
   } else {
     // Gents / Ladies / All, the same three the attendance dashboard offers
     const divisionOf = sec => {
-      const i = String(sec || '').lastIndexOf('\u00b7');
+      const i = String(sec || '').lastIndexOf('·');
       return i > 0 ? sec.slice(i + 1).trim() : '';
     };
     const people = Store.operators(S.dept);
@@ -629,6 +629,212 @@ async function copyLastWeek() {
   });
   toast('Previous period copied across', 'ok');
   await loadWeek();
+}
+
+/* ------------------------------------------------------- paste from Excel */
+
+/*
+ * Lets a planner select the existing weekly plan straight out of Excel or
+ * Google Sheets — the same DATE / SHIFT / PRODUCT / OPERATOR / PLAN / ACTUAL
+ * table these departments already keep — copy it, and drop it in here
+ * instead of clicking through every machine by hand. ACTUAL is always
+ * skipped: that figure comes from Shift entry / the production dashboards,
+ * never from a plan paste.
+ */
+
+const ROW_KEYS = { PRODUCT: 'product', OPERATOR: 'operator', TEAM: 'operator', PLAN: 'plan', ACTUAL: 'actual' };
+
+function normKey(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+
+function matchResource(deptCode, name) {
+  const key = normKey(name);
+  if (!key) return null;
+  const resources = Store.resources(deptCode);
+  let hit = resources.find(r => normKey(r.name) === key);
+  if (hit) return hit;
+  hit = resources.find(r => {
+    const rk = normKey(r.name);
+    return rk && (key.indexOf(rk) === 0 || rk.indexOf(key) === 0);
+  });
+  return hit || null;
+}
+
+function parsePasteDate(disp) {
+  const m = String(disp || '').trim().match(/(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})/);
+  if (!m) return null;
+  let [, d, mo, y] = m;
+  if (y.length === 2) y = '20' + y;
+  const iso = y + '-' + mo.padStart(2, '0') + '-' + d.padStart(2, '0');
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+}
+
+/** Turns pasted (tab-separated) text into {entries, unmatchedResources}. */
+function parsePastedPlan(text) {
+  const rows = String(text || '').replace(/\r/g, '').split('\n').map(r => r.split('\t'));
+  while (rows.length && rows[rows.length - 1].every(c => !String(c).trim())) rows.pop();
+  if (!rows.length) throw new Error('Nothing to import — the pasted text was empty.');
+
+  let dateRow = -1, dateCol = -1;
+  for (let r = 0; r < rows.length && dateRow < 0; r++) {
+    for (let c = 0; c < rows[r].length; c++) {
+      if (String(rows[r][c]).trim().toUpperCase() === 'DATE') { dateRow = r; dateCol = c; break; }
+    }
+  }
+  if (dateRow < 0) {
+    throw new Error('Could not find a "DATE" row — copy starting from the row with the DATE label, including the machine/line name column.');
+  }
+
+  const N = rows[dateRow].length - dateCol - 1;
+  if (N <= 0) throw new Error('No date columns found next to "DATE".');
+
+  let shiftRow = -1;
+  if (rows[dateRow + 1] && rows[dateRow + 1].some(c => /^(DAY|NIGHT)$/i.test(String(c).trim()))) {
+    shiftRow = dateRow + 1;
+  }
+  const headerRow = shiftRow >= 0 ? shiftRow : dateRow;
+
+  const dateCells = rows[dateRow].slice(-N);
+  const shiftCells = shiftRow >= 0 ? rows[shiftRow].slice(-N) : null;
+
+  const cols = [];
+  let lastDisp = '';
+  for (let i = 0; i < N; i++) {
+    const disp = String(dateCells[i] || '').trim();
+    if (disp) lastDisp = disp;
+    cols.push({
+      iso: parsePasteDate(lastDisp),
+      shift: shiftCells ? (/^N/i.test(String(shiftCells[i] || '').trim()) ? 'NIGHT' : 'DAY') : 'DAY'
+    });
+  }
+
+  const byResource = {};
+  const order = [];
+  let curResource = '';
+  for (let r = headerRow + 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row.some(c => String(c).trim())) continue;
+
+    let typeIdx = -1, type = null;
+    for (let c = 0; c < row.length; c++) {
+      const hit = ROW_KEYS[String(row[c]).trim().toUpperCase()];
+      if (hit) { typeIdx = c; type = hit; break; }
+    }
+    if (type === null) continue;               // a title / notes row — ignore
+
+    for (let c = 0; c < typeIdx; c++) {
+      const name = String(row[c]).trim();
+      if (name) { curResource = name; break; }
+    }
+    if (!curResource) continue;
+    if (type === 'actual') continue;            // actual always comes from Shift entry
+
+    if (!byResource[curResource]) { byResource[curResource] = {}; order.push(curResource); }
+    byResource[curResource][type] = row.slice(-N);
+  }
+
+  const entries = [];
+  const unmatchedResources = [];
+  order.forEach(name => {
+    const res = matchResource(S.dept, name);
+    if (!res) { unmatchedResources.push(name); return; }
+    const block = byResource[name];
+    for (let i = 0; i < N; i++) {
+      const { iso, shift } = cols[i];
+      if (!iso) continue;
+      let product = block.product ? String(block.product[i] || '').trim() : '';
+      if (!product || product === '-') continue;   // idle slot — nothing to carry over
+      let operator = block.operator ? String(block.operator[i] || '').trim() : '';
+      if (operator === '-') operator = '';
+      if (operator) operator = operator.split(/[\/,&]+/).map(x => x.trim()).filter(Boolean).join(OP_SEP);
+      const planRaw = block.plan ? String(block.plan[i] || '').trim() : '';
+      const plan = (planRaw === '' || planRaw === '-') ? '' : (Number(planRaw.replace(/[,\s]/g, '')) || '');
+      entries.push({ resId: res.id, date: iso, shift, product, operator, plan });
+    }
+  });
+
+  return { entries, unmatchedResources };
+}
+
+/** Writes parsed entries into the in-memory board and marks them dirty. */
+function applyPastedPlan(parsed) {
+  let minDate = null;
+  parsed.entries.forEach(e => {
+    const c = cell(e.date, e.shift, e.resId);
+    c.product = e.product;
+    if (e.operator) c.operator = e.operator;
+    if (e.plan !== '') c.plan = e.plan;
+    S.dirty.add(ck(e.date, e.shift, e.resId));
+    if (!minDate || e.date < minDate) minDate = e.date;
+  });
+
+  if (parsed.entries.length && minDate) {
+    const visible = workingDays(S.start, S.days);
+    if (minDate < visible[0] || minDate > visible[visible.length - 1]) {
+      S.start = nextWorkingDay(minDate);
+      $('#weekDate').value = S.start;
+    }
+  }
+
+  markDirty();
+  render();
+  return parsed.entries.length;
+}
+
+function openPasteModal() {
+  const box = $('#modal');
+  box.innerHTML = '';
+  box.classList.add('open');
+
+  const panel = el('div', { class: 'modal' });
+  panel.appendChild(el('div', { class: 'modal-head' }, [
+    el('h3', { text: 'Paste plan — ' + Store.dept(S.dept).name }),
+    el('button', { class: 'btn', text: 'Close', onclick: closeModal })
+  ]));
+
+  const body = el('div', { class: 'modal-body' });
+  body.appendChild(el('p', { class: 'empty', text:
+    'In Excel or Google Sheets, select from the "DATE" row down to the last row of the table, including the machine/line name column on the left — then copy (Ctrl+C) and paste it below (Ctrl+V). Actual figures are skipped; those always come from Shift entry.' }));
+  const area = el('textarea', {
+    rows: 14, style: 'width:100%;font-family:monospace;font-size:12px;box-sizing:border-box',
+    placeholder: 'Paste here…'
+  });
+  body.appendChild(area);
+  const result = el('div', { style: 'margin-top:10px' });
+  body.appendChild(result);
+
+  panel.appendChild(body);
+  panel.appendChild(el('div', { class: 'modal-foot' }, [
+    el('span', { class: 'empty', text: 'Nothing is saved until you click Save plan afterwards.' }),
+    el('button', {
+      class: 'btn btn--primary', text: 'Import',
+      onclick: () => {
+        result.innerHTML = '';
+        let parsed;
+        try {
+          parsed = parsePastedPlan(area.value);
+        } catch (e) {
+          result.appendChild(el('p', { class: 'issue', text: e.message }));
+          return;
+        }
+        const applied = applyPastedPlan(parsed);
+        result.appendChild(el('p', {
+          class: applied ? 'empty' : 'issue',
+          text: applied + ' slot' + (applied === 1 ? '' : 's') + ' filled in' + (applied ? ' — review on the board, then Save plan.' : '.')
+        }));
+        if (parsed.unmatchedResources.length) {
+          result.appendChild(el('p', {
+            class: 'issue warn',
+            text: "Couldn't match these names to a machine/line on this board: " + parsed.unmatchedResources.join(', ')
+          }));
+        }
+        if (applied) toast(applied + ' slots filled — review, then Save plan', 'ok');
+      }
+    })
+  ]));
+
+  box.appendChild(panel);
+  box.addEventListener('click', e => { if (e.target === box) closeModal(); });
+  setTimeout(() => area.focus(), 0);
 }
 
 /* ----------------------------------------------------------- validation */
@@ -1026,6 +1232,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('#weekDate').onchange = e => { S.start = nextWorkingDay(e.target.value); e.target.value = S.start; loadWeek(); };
   $('#dayCount').onchange = e => { S.days = Number(e.target.value); loadWeek(); };
   $('#copyBtn').onclick = () => copyLastWeek().catch(e => toast(e.message, 'err'));
+  $('#pasteBtn').onclick = () => openPasteModal();
   $('#saveBtn').onclick = () => save();
   $('#printBtn').onclick = () => window.print();
   $('#blankBtn').onclick = () => printBlank();
