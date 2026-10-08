@@ -16,11 +16,42 @@ function table(headers, rows) {
   return t;
 }
 
+/** A visible, actionable box — used instead of ever leaving "Loading…" stuck
+ *  forever with no explanation. btnLabel/onClick are optional. */
+function statusBox(msg, btnLabel, onClick) {
+  const children = [el('p', { text: msg })];
+  if (btnLabel && onClick) {
+    const btn = el('button', { class: 'btn', text: btnLabel });
+    btn.addEventListener('click', onClick);
+    children.push(btn);
+  }
+  return el('div', { class: 'empty' }, children);
+}
+
+/** Puts a fresh copy of a status box (with a working click handler) into each panel. */
+function showStatusEverywhere(msg, btnLabel, onClick) {
+  ['#depts', '#products', '#idle'].forEach(sel => {
+    const target = $(sel);
+    if (target) { target.innerHTML = ''; target.appendChild(statusBox(msg, btnLabel, onClick)); }
+  });
+}
+
 async function load() {
   const from = $('#from').value, to = $('#to').value;
   $('#depts').innerHTML = '<p class="loading">Loading…</p>';
-  await Store.bootstrap();
-  const d = await api('dashboard', { from, to });
+
+  let d;
+  try {
+    await Store.bootstrap();
+    d = await api('dashboard', { from, to });
+  } catch (e) {
+    // Previously this just threw and left "Loading…" on screen forever if the
+    // caller's toast was missed (it auto-dismisses in ~3.6s). Now the real
+    // reason stays visible until you retry.
+    toast(e.message, 'err');
+    showStatusEverywhere('Could not load: ' + e.message, 'Retry', () => load().catch(err => toast(err.message, 'err')));
+    return;
+  }
 
   const name = c => (Store.boot.depts.find(x => x.code === c) || {}).name || c;
 
@@ -75,8 +106,21 @@ async function load() {
   }
 }
 
-window.addEventListener('DOMContentLoaded', async () => {
-  if (!await Auth.gate()) return;
+async function boot() {
+  const signedIn = await Auth.gate();
+  if (!signedIn) {
+    // Auth.gate() returns false both when the name/PIN prompt is cancelled
+    // AND when the browser has silently auto-blocked repeated prompt()
+    // dialogs from this site (Chrome does this after several reloads) —
+    // either way nothing used to happen at all. A real click below is a
+    // fresh user gesture, so the browser will show the prompt again.
+    showStatusEverywhere(
+      'Not signed in — the name/PIN prompt didn\'t go through (it may have been cancelled, or the browser blocked it after repeated reloads).',
+      'Click to sign in',
+      async () => { if (await Auth.gate()) location.reload(); }
+    );
+    return;
+  }
   $('#who').textContent = Auth.user;
   const start = nextWorkingDay(todayISO());
   $('#from').value = start;
@@ -84,4 +128,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('#go').onclick = () => load().catch(e => toast(e.message, 'err'));
   $('#printBtn').onclick = () => window.print();
   load().catch(e => toast(e.message, 'err'));
-});
+}
+
+window.addEventListener('DOMContentLoaded', () => { boot(); });
