@@ -121,35 +121,82 @@ function renderSkeleton() {
   try { render(); } catch (e) { /* nothing cached yet — the real render follows */ }
 }
 
+/** One-time stylesheet for the row-per-field board layout (Line / Field / dates),
+ *  the same arrangement as the weekly Excel plan — kept inline so the look
+ *  doesn't depend on whatever app.css happens to already contain. */
+function ensureBoardStyle() {
+  if ($('#boardRowStyle')) return;
+  const style = el('style', { id: 'boardRowStyle', text: `
+    table.board.board--rows { border-collapse: collapse; width: 100%; font-size: 13px; }
+    table.board.board--rows th, table.board.board--rows td { border: 1px solid #d7dce3; padding: 6px 8px; text-align: center; vertical-align: middle; }
+    table.board.board--rows thead th { background: #eef2f8; font-weight: 600; color: #1f2b3d; }
+    table.board.board--rows thead th.today { background: #d8e6ff; }
+    table.board.board--rows thead th small { display: block; font-weight: 400; color: #5a6b85; font-size: 11px; }
+    table.board.board--rows th.res { background: #1f3a5f; color: #fff; font-weight: 700; text-align: left; min-width: 130px; }
+    table.board.board--rows th.res .type { display: block; font-weight: 400; font-size: 10px; opacity: .8; text-transform: uppercase; }
+    table.board.board--rows th.res button.btn { background: #fff; color: #1f3a5f; }
+    table.board.board--rows th.field { background: #f4f6f9; color: #52607a; font-weight: 600; text-align: left; min-width: 70px; }
+    table.board.board--rows tr.frow-actual th.field, table.board.board--rows tr.frow-actual td { color: #7b8aa3; }
+    table.board.board--rows td.cell { cursor: default; }
+    table.board.board--rows td.cell--gap { background: #fdf3d9; }
+    table.board.board--rows td.cell.night { background: rgba(31,58,95,.04); }
+    table.board.board--rows td button.pick { border: none; background: none; width: 100%; cursor: pointer; font: inherit; color: #1f2b3d; }
+    table.board.board--rows td button.pick.empty { color: #9aa6b8; font-style: italic; }
+    table.board.board--rows td button.pick:hover { text-decoration: underline; }
+    table.board.board--rows td input.qty { width: 64px; text-align: center; border: 1px solid #c7cedb; border-radius: 4px; padding: 3px; font: inherit; }
+    table.board.board--rows td.changed { outline: 2px solid #4c8bf5; outline-offset: -2px; }
+    table.board.board--rows td.clash { background: #fde2e1; }
+    table.board.board--rows .actval { font-weight: 600; }
+    table.board.board--rows .actval--none { color: #b3bccb; }
+  ` });
+  document.head.appendChild(style);
+}
+
+/** Label shown in the left "Field" column for one row. */
+function fieldLabel(field, dept) {
+  if (field === 'PRODUCT') return 'Product';
+  if (field === 'OPERATOR') return dept.operatorLabel || 'Operator';
+  if (field === 'PLAN') return 'Plan';
+  return 'Actual';
+}
 
 function render() {
+  ensureBoardStyle();
   const d = Store.dept(S.dept);
   const days = workingDays(S.start, S.days);
   const resources = Store.resources(S.dept);
   const shifts = d.hasShift ? ['DAY', 'NIGHT'] : ['DAY'];
   const today = todayISO();
+  const fields = d.hasOperator ? ['PRODUCT', 'OPERATOR', 'PLAN', 'ACTUAL'] : ['PRODUCT', 'PLAN', 'ACTUAL'];
 
   const wrap = $('.board-wrap');
   const keepTop = wrap ? wrap.scrollTop : 0;
   const keepLeft = wrap ? wrap.scrollLeft : 0;
 
-  const table = el('table', { class: 'board' });
-  const hr = el('tr');
-  hr.appendChild(el('th', { class: 'res', text: d.resourceLabel }));
-  if (d.hasShift) hr.appendChild(el('th', { class: 'shift', text: 'Shift' }));
+  const table = el('table', { class: 'board board--rows' });
+
+  const hr1 = el('tr');
+  hr1.appendChild(el('th', { class: 'res', rowspan: d.hasShift ? 2 : 1, text: d.resourceLabel }));
+  hr1.appendChild(el('th', { class: 'field', rowspan: d.hasShift ? 2 : 1, text: 'Field' }));
   days.forEach(day => {
-    const th = el('th', { class: day === today ? 'today' : '', text: shortDate(day) });
+    const th = el('th', { class: day === today ? 'today' : '', colspan: shifts.length, text: shortDate(day) });
     th.appendChild(el('small', { text: day === today ? 'Today' : day.split('-').reverse().join('.') }));
-    hr.appendChild(th);
+    hr1.appendChild(th);
   });
-  table.appendChild(el('thead', {}, hr));
+  const theadRows = [hr1];
+  if (d.hasShift) {
+    const hr2 = el('tr');
+    days.forEach(() => shifts.forEach(sh => hr2.appendChild(el('th', { class: 'shift', text: sh === 'DAY' ? 'Day' : 'Night' }))));
+    theadRows.push(hr2);
+  }
+  table.appendChild(el('thead', {}, theadRows));
 
   const tbody = el('tbody');
   resources.forEach(r => {
-    shifts.forEach((sh, si) => {
-      const tr = el('tr', { class: sh === 'NIGHT' ? 'night' : '' });
-      if (si === 0) {
-        const th = el('th', { class: 'res', rowspan: shifts.length });
+    fields.forEach((field, fi) => {
+      const tr = el('tr', { class: 'frow frow-' + field.toLowerCase() });
+      if (fi === 0) {
+        const th = el('th', { class: 'res', rowspan: fields.length });
         th.appendChild(el('div', { text: r.name }));
         th.appendChild(el('span', { class: 'type', text: r.type }));
         th.appendChild(el('button', {
@@ -159,12 +206,15 @@ function render() {
         }));
         tr.appendChild(th);
       }
-      if (d.hasShift) tr.appendChild(el('th', { class: 'shift', text: sh === 'DAY' ? 'Day' : 'Night' }));
+      tr.appendChild(el('th', { class: 'field', text: fieldLabel(field, d) }));
       days.forEach(day => {
-        const td = el('td', { class: 'cell' });
-        td.dataset.key = ck(day, sh, r.id);
-        paintCell(td);
-        tr.appendChild(td);
+        shifts.forEach(sh => {
+          const td = el('td', { class: 'cell' + (sh === 'NIGHT' ? ' night' : '') });
+          td.dataset.key = ck(day, sh, r.id);
+          td.dataset.field = field;
+          paintFieldCell(td);
+          tr.appendChild(td);
+        });
       });
       tbody.appendChild(tr);
     });
@@ -183,92 +233,76 @@ function render() {
   coverage();
 }
 
-/** Draws one cell. Cheap — plain text plus a single number input. */
-function paintCell(td) {
+/** Draws one <td> — its content depends only on td.dataset.field. */
+function paintFieldCell(td) {
   const [day, shift, resId] = td.dataset.key.split('|');
-  const dept = Store.dept(S.dept);
+  const field = td.dataset.field;
   const c = cell(day, shift, resId);
 
   td.innerHTML = '';
-  td.className = 'cell' + (c.product ? '' : ' idle') + (S.dirty.has(td.dataset.key) ? ' changed' : '');
-  const stack = el('div', { class: 'stack' });
+  const gap = !c.product && field !== 'PRODUCT';
+  td.classList.toggle('cell--gap', gap);
+  td.classList.toggle('changed', S.dirty.has(td.dataset.key));
 
-  /* product */
-  stack.appendChild(el('button', {
-    class: 'pick prod' + (c.product ? '' : ' empty'),
-    text: c.product || '— idle —',
-    title: c.product || 'Choose a product',
-    onclick: e => openPicker('product', td, e.currentTarget)
-  }));
+  if (field === 'PRODUCT') {
+    td.appendChild(el('button', {
+      class: 'pick prod' + (c.product ? '' : ' empty'),
+      text: c.product || '—',
+      title: c.product || 'Choose a product',
+      onclick: e => openPicker('product', td, e.currentTarget)
+    }));
+    return;
+  }
 
-  /* people */
-  if (dept.hasOperator) {
+  if (field === 'OPERATOR') {
+    const dept = Store.dept(S.dept);
     const crew = opList(c.operator);
     if (dept.multiOperator && crew.length) {
       const box = el('div', { class: 'crew' });
       crew.forEach(nm => box.appendChild(el('span', { class: 'chip' }, el('b', { text: opLabel(nm), title: nm }))));
       box.addEventListener('click', e => openPicker('operator', td, e.currentTarget));
-      stack.appendChild(box);
-      stack.appendChild(el('button', {
-        class: 'pick op small',
-        text: '+ add ' + dept.operatorLabel.toLowerCase(),
-        onclick: e => openPicker('operator', td, e.currentTarget)
-      }));
+      td.appendChild(box);
     } else {
-      stack.appendChild(el('button', {
+      td.appendChild(el('button', {
         class: 'pick op' + (crew.length ? '' : ' empty'),
-        text: crew.length ? crew.map(opLabel).join(', ') : '— not assigned —',
+        text: crew.length ? crew.map(opLabel).join(', ') : '—',
         title: c.operator || 'Assign somebody',
         onclick: e => openPicker('operator', td, e.currentTarget)
       }));
-      const members = opMembers(c.operator);
-      if (members.length) {
-        const mb = el('div', { class: 'members' });
-        members.forEach(m => mb.appendChild(el('span', { text: m })));
-        stack.appendChild(mb);
-      }
     }
+    return;
   }
 
-  /* plan */
-  const planRow = el('div', { class: 'line' });
-  planRow.appendChild(el('b', { text: 'Plan' }));
-  const qty = el('input', { class: 'qty', type: 'number', min: '0', step: '10', value: c.plan === '' ? '' : c.plan });
-  qty.addEventListener('input', () => {
-    c.plan = qty.value === '' ? '' : Number(qty.value);
-    S.dirty.add(td.dataset.key);
-    td.classList.add('changed');
-    markDirty();
-    scheduleRecalc();
-  });
-  planRow.appendChild(qty);
-  stack.appendChild(planRow);
+  if (field === 'PLAN') {
+    const qty = el('input', { class: 'qty', type: 'number', min: '0', step: '10', value: c.plan === '' ? '' : c.plan });
+    qty.addEventListener('input', () => {
+      c.plan = qty.value === '' ? '' : Number(qty.value);
+      S.dirty.add(td.dataset.key);
+      td.classList.add('changed');
+      markDirty();
+      scheduleRecalc();
+    });
+    td.appendChild(qty);
+    return;
+  }
 
-  /* actual */
-  const actRow = el('div', { class: 'line' });
-  actRow.appendChild(el('b', { text: 'Actual' }));
+  // ACTUAL — read-only, reported from Shift entry / production actuals
   const has = c.actual !== '' && c.actual !== null && c.actual !== undefined;
   if (has) {
     const v = Number(c.actual) - Number(c.plan || 0);
-    actRow.appendChild(el('span', {
+    td.appendChild(el('span', {
       class: 'actval ' + (v < 0 ? 'var-behind' : 'var-ahead'),
       title: 'Reported from Shift entry',
       text: fmt(c.actual) + (v ? '  ' + (v > 0 ? '+' : '') + fmt(v) : '')
     }));
   } else {
-    actRow.appendChild(el('span', { class: 'actval actval--none', text: '—' }));
+    td.appendChild(el('span', { class: 'actval actval--none', text: '—' }));
   }
-  stack.appendChild(actRow);
-
-  if (c.remarks) stack.appendChild(el('div', { class: 'reason-note', title: c.remarks, text: c.remarks }));
-
-  td.appendChild(stack);
 }
 
-/** Repaints one cell without touching the rest of the board. */
+/** Repaints every field cell sharing a slot key, without touching the rest of the board. */
 function repaint(key) {
-  const td = $('[data-key="' + key + '"]');
-  if (td) paintCell(td);
+  $$('[data-key="' + key + '"]').forEach(paintFieldCell);
 }
 
 let recalcTimer = null;
@@ -861,8 +895,7 @@ function validate() {
               [seen.get(person), r.name].forEach(n => {
                 const other = Store.resources(S.dept).find(x => x.name === n);
                 if (!other) return;
-                const td = $('[data-key="' + ck(day, sh, other.id) + '"]');
-                if (td) td.classList.add('clash');
+                $$('[data-key="' + ck(day, sh, other.id) + '"]').forEach(td => td.classList.add('clash'));
               });
             } else seen.set(person, r.name);
           });
